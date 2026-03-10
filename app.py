@@ -109,13 +109,14 @@ st.markdown(
         font-family: 'Caveat', 'Nunito', system-ui, sans-serif;
     }
 
-    /* Tree-view checkbox: handwriting label + blue tick */
-    .task-tree-toggle label {
+    /* All checkbox labels in handwriting */
+    div.stCheckbox label {
         font-family: 'Caveat', 'Nunito', system-ui, sans-serif !important;
         font-size: 1.15rem !important;
         color: #7c2d12 !important;
     }
-    .task-tree-toggle input[type="checkbox"] {
+    /* Only the tree-view checkbox tick in blue */
+    div.stCheckbox input[id^="tree_view_toggle"] {
         accent-color: #3b82f6 !important;
     }
 
@@ -139,6 +140,64 @@ st.markdown(
         color: #15803d;
         text-decoration: line-through;
         opacity: 0.9;
+    }
+
+    /* Weekly planner delete button styling */
+    .planner-delete {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        padding: 0;
+        margin: 0;
+    }
+    .planner-delete div[data-testid="stButton"] {
+        background: transparent !important;
+        border: none !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        box-shadow: none !important;
+    }
+    .planner-delete button {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        font-size: 0.95rem !important;
+        line-height: 1 !important;
+        font-family: 'Caveat', 'Nunito', system-ui, sans-serif !important;
+        color: #7c2d12 !important;
+        cursor: pointer !important;
+    }
+    .planner-delete button:hover {
+        color: #dc2626 !important;
+    }
+
+    /* Weekly planner minutes input */
+    input[id^="planner_minutes_"] {
+        width: 6.5rem !important;
+        min-width: 6.5rem !important;
+        font-size: 1.05rem !important;
+        padding: 0.2rem 0.4rem !important;
+        height: 2.1rem !important;
+        box-sizing: border-box !important;
+        background-color: #ffffff !important;
+        color: #111827 !important;
+        border: 1px solid #9ca3af !important;
+        border-radius: 0.4rem !important;
+    }
+
+   .planner-task-label {
+    font-size: 14px;
+    line-height: 1.4;
+    display: inline-block;
+    }
+
+    /* Hide default checkbox box for weekly planner tasks, keep label clickable */
+    input[id^="planner_task_"] {
+        opacity: 0;
+        width: 0;
+        margin: 0;
     }
     </style>
     """,
@@ -164,7 +223,7 @@ with hero_right:
 
 page = st.sidebar.radio(
     "Navigation",
-    ["Add Hobby", "Log Activity", "View Hobby Activity", "Statistics", "Tasks"]
+    ["Add Hobby", "Log Activity", "View Hobby Activity", "Statistics", "Tasks", "Weekly Planner"]
 )
 
 # -------------------
@@ -444,6 +503,25 @@ elif page == "Tasks":
         # Generate concrete tasks from recurring templates for this hobby
         db.ensure_recurring_tasks_for_today(hobby_id)
 
+        # Weekly planner tasks linked to this hobby (shown here too)
+        today = datetime.date.today()
+        week_start = today - datetime.timedelta(days=today.weekday())
+        week_end = week_start + datetime.timedelta(days=6)
+        planner_rows = db.get_planner_tasks_for_range(week_start.isoformat(), week_end.isoformat())
+        # columns: id, date, title, notes, done, frequency, packet_id, minutes, hobby_id, points, task_id
+        planner_for_hobby = [r for r in planner_rows if (len(r) >= 9 and r[8] == hobby_id)]
+        if planner_for_hobby:
+            st.subheader("Weekly Planned Tasks (This Week)")
+            for r in planner_for_hobby:
+                p_id, d_str, title, notes, done_flag, freq, packet_id, minutes, _hid, points, _task_id = r
+                label = f"{d_str}: {title} ({minutes} min, {points} pts)"
+                if notes:
+                    label += f" — {notes}"
+                checked = st.checkbox(label, value=bool(done_flag), key=f"task_weeklyplan_{p_id}")
+                if checked != bool(done_flag):
+                    db.toggle_planner_task_done(p_id, done=checked)
+                    st.rerun()
+
         # Layout: regular vs recurring tasks side by side
         col_tasks, col_recurring = st.columns(2)
 
@@ -580,3 +658,341 @@ elif page == "Tasks":
                     st.info("No active tasks or subtasks for this hobby.")
         else:
             st.info("No tasks yet for this hobby.")
+
+# -------------------
+# Weekly Planner Page
+# -------------------
+elif page == "Weekly Planner":
+    st.header("Weekly Planner")
+
+    today = datetime.date.today()
+    # Choose a reference date; we'll show the week (Mon–Sun) containing it
+    ref_date = st.date_input("Pick a day in the week you want to plan", value=today)
+    week_start = ref_date - datetime.timedelta(days=ref_date.weekday())  # Monday
+    week_days = [week_start + datetime.timedelta(days=i) for i in range(7)]
+    week_end = week_days[-1]
+
+    st.markdown(
+        f"<div class='section-title'>Week of {week_start.strftime('%d %b %Y')} – {week_end.strftime('%d %b %Y')}</div>",
+        unsafe_allow_html=True,
+    )
+
+    # Fetch tasks for this week
+    planner_rows = db.get_planner_tasks_for_range(
+        week_start.isoformat(), week_end.isoformat()
+    )
+    tasks_by_date = {}
+    for row in planner_rows:
+        t_id, d_str, title, notes, done_flag, freq, packet_id, minutes, hobby_id, points, linked_task_id = row
+        tasks_by_date.setdefault(d_str, []).append(
+            {
+                "id": t_id,
+                "title": title,
+                "notes": notes,
+                "done": bool(done_flag),
+                "frequency": freq,
+                "packet_id": packet_id,
+                "minutes": minutes,
+                "hobby_id": hobby_id,
+                "points": points,
+                "task_id": linked_task_id,
+            }
+        )
+
+    # Controls to add tasks manually
+    st.subheader("Add a Task to This Week")
+    hobbies = db.get_hobbies()
+    if not hobbies:
+        st.warning("Please add at least one hobby first (in the Add Hobby page).")
+    col_day, col_title = st.columns([1, 2])
+    with col_day:
+        day_for_task = st.selectbox(
+            "Day",
+            options=week_days,
+            format_func=lambda d: d.strftime("%a %d %b"),
+            key="planner_add_day",
+        )
+    with col_title:
+        title_for_task = st.text_input("Task title", key="planner_add_title")
+    notes_for_task = st.text_input("Notes (optional)", key="planner_add_notes")
+    est_minutes = st.number_input(
+        "Estimated minutes", min_value=0, max_value=600, value=0, key="planner_add_minutes"
+    )
+    est_points = st.number_input(
+        "Points", min_value=0, max_value=100, value=0, key="planner_add_points"
+    )
+    frequency = st.selectbox(
+        "Frequency",
+        ["Once", "Daily", "Weekly"],
+        index=0,
+        key="planner_add_frequency",
+    )
+    # Linked hobby for this planner task
+    if hobbies:
+        hobby_dict = {name: id for id, name in hobbies}
+        hobby_for_task = st.selectbox(
+            "Linked hobby",
+            options=list(hobby_dict.keys()),
+            key="planner_add_hobby",
+        )
+    else:
+        hobby_dict = {}
+        hobby_for_task = None
+    if st.button("Add Weekly Task", key="planner_add_btn"):
+        if not hobbies:
+            st.warning("Cannot add planner tasks until you have at least one hobby.")
+        elif not title_for_task.strip():
+            st.warning("Please provide a task title.")
+        elif not hobby_for_task:
+            st.warning("Please choose a hobby for this task.")
+        else:
+            freq_value = frequency.lower()
+            # If daily, add the task for every day of the displayed week
+            if freq_value == "daily":
+                for d in week_days:
+                    task_id = db.add_task(
+                        hobby_dict[hobby_for_task],
+                        title_for_task.strip(),
+                        est_minutes,
+                        est_points,
+                    )
+                    db.add_planner_task(
+                        d.isoformat(),
+                        title_for_task.strip(),
+                        notes_for_task.strip(),
+                        freq_value,
+                        None,
+                        est_minutes,
+                        hobby_dict[hobby_for_task],
+                        est_points,
+                        task_id,
+                    )
+            else:
+                task_id = db.add_task(
+                    hobby_dict[hobby_for_task],
+                    title_for_task.strip(),
+                    est_minutes,
+                    est_points,
+                )
+                db.add_planner_task(
+                    day_for_task.isoformat(),
+                    title_for_task.strip(),
+                    notes_for_task.strip(),
+                    freq_value,
+                    None,
+                    est_minutes,
+                    hobby_dict[hobby_for_task],
+                    est_points,
+                    task_id,
+                )
+            st.success("Task added to weekly planner!")
+            st.rerun()
+
+    # Packet section (e.g., Self care)
+    st.subheader("Packets (Templates)")
+    packets = db.get_planner_packets()
+    if packets:
+        packet_dict = {name: pid for pid, name in packets}
+        col_p_day, col_p_packet = st.columns([1, 2])
+        with col_p_day:
+            packet_day = st.selectbox(
+                "Day for packet",
+                options=week_days,
+                format_func=lambda d: d.strftime("%a %d %b"),
+                key="planner_packet_day",
+            )
+        with col_p_packet:
+            packet_name = st.selectbox(
+                "Choose packet",
+                options=list(packet_dict.keys()),
+                key="planner_packet_name",
+            )
+        col_pkt_actions1, col_pkt_actions2 = st.columns(2)
+        with col_pkt_actions1:
+            est_packet_minutes = st.number_input(
+                "Minutes per packet item",
+                min_value=0,
+                max_value=600,
+                value=0,
+                key="planner_packet_minutes",
+            )
+        with col_pkt_actions2:
+            est_packet_points = st.number_input(
+                "Points per packet item",
+                min_value=0,
+                max_value=100,
+                value=0,
+                key="planner_packet_points",
+            )
+
+        if st.button("Add Packet to Day", key="planner_add_packet_btn"):
+            p_id = packet_dict[packet_name]
+            # Prevent adding the same packet more than once for the same day
+            existing_for_day = tasks_by_date.get(packet_day.isoformat(), [])
+            if any(t["packet_id"] == p_id for t in existing_for_day):
+                st.warning("This packet has already been added for the selected day.")
+            else:
+                items = db.get_planner_packet_items(p_id)
+                for _, item_title in items:
+                    db.add_planner_task(
+                        packet_day.isoformat(),
+                        item_title,
+                        "",
+                        "once",
+                        packet_id=p_id,
+                        minutes=est_packet_minutes,
+                        hobby_id=None,
+                        points=est_packet_points,
+                    )
+                st.success(f"Packet '{packet_name}' added to {packet_day.strftime('%a %d %b')}.")
+                st.rerun()
+
+        # Option to remove selected packet
+        if st.button("Remove Selected Packet", key="planner_remove_packet_btn"):
+            p_id = packet_dict[packet_name]
+            db.delete_planner_packet(p_id)
+            st.success(f"Packet '{packet_name}' removed.")
+            st.rerun()
+    else:
+        st.info("No packets defined yet.")
+
+    # Visual weekly board
+st.subheader("This Week at a Glance")
+
+cols = st.columns(7)
+
+for i, d in enumerate(week_days):
+    with cols[i]:
+
+        st.markdown(
+            f"<div class='section-title'>{d.strftime('%a')}</div>",
+            unsafe_allow_html=True,
+        )
+
+        d_str = d.isoformat()
+        day_tasks = tasks_by_date.get(d_str, [])
+
+        if not day_tasks:
+            st.caption("No tasks")
+
+        for t in day_tasks:
+
+            label = t["title"]
+            if t["notes"]:
+                label += f" — {t['notes']}"
+
+            row_cols = st.columns([0.7, 1.3, 4.5])
+            # Delete button
+            with row_cols[0]:
+                if st.button("🗑", key=f"planner_del_{t['id']}"):
+                    db.delete_planner_task(t["id"])
+                    st.rerun()
+
+            # Minutes popover ONLY if task is done
+            with row_cols[1]:
+
+                if t["done"]:
+
+                    default_min = t["minutes"] or 0
+                    current_min = st.session_state.get(
+                        f"planner_minutes_{t['id']}",
+                        default_min
+                    )
+
+                    pop = st.popover("min", key=f"planner_min_pop_{t['id']}")
+
+                    with pop:
+                        st.number_input(
+                            "Minutes",
+                            min_value=0,
+                            max_value=600,
+                            value=current_min,
+                            key=f"planner_minutes_{t['id']}",
+                        )
+
+                else:
+                    # keep column spacing consistent
+                    st.write("")
+
+            # Checkbox + label
+            with row_cols[2]:
+
+                c1, c2 = st.columns([0.7, 5.3])
+
+                with c1:
+                    checked = st.checkbox(
+                        "",
+                        value=t["done"],
+                        key=f"planner_task_{t['id']}",
+                    )
+
+                with c2:
+                    st.markdown(
+                        f'<span class="planner-task-label">{label}</span>',
+                        unsafe_allow_html=True,
+                    )
+
+                if checked != t["done"]:
+
+                    # When marking done, store minutes
+                    if checked:
+                        actual_minutes = st.session_state.get(
+                            f"planner_minutes_{t['id']}",
+                            t["minutes"] or 0
+                        )
+                        db.update_planner_task_minutes(t["id"], actual_minutes)
+
+                    db.toggle_planner_task_done(t["id"], done=checked)
+                    st.rerun()
+    # Estimated vs actual time per hobby for this week
+    st.subheader("Estimated vs Actual Minutes per Hobby")
+    # Estimated from planner tasks minutes grouped by hobby
+    est_by_hobby = {}
+    for rows in tasks_by_date.values():
+        for t in rows:
+            if t["hobby_id"] is None:
+                continue
+            est_by_hobby.setdefault(t["hobby_id"], 0)
+            est_by_hobby[t["hobby_id"]] += t["minutes"] or 0
+
+    # Map hobby_id -> name
+    hobby_map = {hid: name for hid, name in db.get_hobbies()}
+
+    # Actual from entries in this date range
+    df_actual = db.get_minutes_for_hobbies_in_range(
+        week_start.isoformat(), week_end.isoformat()
+    )
+
+    if est_by_hobby or (df_actual is not None and not df_actual.empty):
+        import pandas as _pd  # local alias to avoid confusion
+
+        hobbies_list = set()
+        for hid in est_by_hobby.keys():
+            if hid in hobby_map:
+                hobbies_list.add(hobby_map[hid])
+        if df_actual is not None and not df_actual.empty:
+            hobbies_list.update(df_actual["hobby"].tolist())
+
+        data = []
+        for hobby_name in sorted(hobbies_list):
+            # find id for hobby_name if present
+            hid = None
+            for _hid, _name in hobby_map.items():
+                if _name == hobby_name:
+                    hid = _hid
+                    break
+            est = est_by_hobby.get(hid, 0)
+            act = 0
+            if df_actual is not None and not df_actual.empty:
+                row = df_actual[df_actual["hobby"] == hobby_name]
+                if not row.empty:
+                    act = int(row["total_minutes"].iloc[0])
+            data.append({"hobby": hobby_name, "Estimated": est, "Actual": act})
+
+        if data:
+            df_plot = _pd.DataFrame(data).set_index("hobby")
+            st.bar_chart(df_plot)
+        else:
+            st.caption("No estimated or actual minutes for this week yet.")
+    else:
+        st.caption("No estimated or actual minutes for this week yet.")

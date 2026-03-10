@@ -84,6 +84,71 @@ def init_db():
     )
     """)
 
+    # ----------------------
+    # Weekly planner tables
+    # ----------------------
+    # High-level tasks tied to a specific date (for weekly planning)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS planner_tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        title TEXT NOT NULL,
+        notes TEXT,
+        done INTEGER DEFAULT 0,
+        frequency TEXT DEFAULT 'once', -- once, daily, weekly
+        packet_id INTEGER,
+        minutes INTEGER DEFAULT 0,
+        hobby_id INTEGER,
+        points INTEGER DEFAULT 0,
+        task_id INTEGER
+    )
+    """)
+
+    # Packets (templates) of tasks, e.g. "Self care"
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS planner_packets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS planner_packet_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        packet_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        FOREIGN KEY(packet_id) REFERENCES planner_packets(id)
+    )
+    """)
+
+    # Ensure newer columns exist in planner_tasks for older DBs
+    cursor.execute("PRAGMA table_info(planner_tasks)")
+    cols = [row[1] for row in cursor.fetchall()]
+    if "minutes" not in cols:
+        cursor.execute("ALTER TABLE planner_tasks ADD COLUMN minutes INTEGER DEFAULT 0")
+    if "hobby_id" not in cols:
+        cursor.execute("ALTER TABLE planner_tasks ADD COLUMN hobby_id INTEGER")
+    if "points" not in cols:
+        cursor.execute("ALTER TABLE planner_tasks ADD COLUMN points INTEGER DEFAULT 0")
+    if "task_id" not in cols:
+        cursor.execute("ALTER TABLE planner_tasks ADD COLUMN task_id INTEGER")
+
+    # Seed a default "Self care" packet if it doesn't exist yet
+    cursor.execute("SELECT id FROM planner_packets WHERE name = ?", ("Self care",))
+    row = cursor.fetchone()
+    if not row:
+        cursor.execute("INSERT INTO planner_packets (name) VALUES (?)", ("Self care",))
+        packet_id = cursor.lastrowid
+        cursor.executemany(
+            "INSERT INTO planner_packet_items (packet_id, title) VALUES (?, ?)",
+            [
+                (packet_id, "Skin-care"),
+                (packet_id, "Shower"),
+                (packet_id, "Breakfast"),
+                (packet_id, "Meditation"),
+            ],
+        )
+
     conn.commit()
     conn.close()
 
@@ -271,6 +336,170 @@ def get_weekly_minutes_by_hobby():
     return df
 
 
+def get_minutes_for_hobbies_in_range(start_date_str, end_date_str):
+    """
+    Aggregate actual minutes from entries per hobby between two dates (inclusive).
+    """
+    conn = get_connection()
+    df = pd.read_sql_query(
+        """
+        SELECT h.name AS hobby,
+               SUM(e.minutes) AS total_minutes
+        FROM entries e
+        JOIN hobbies h ON e.hobby_id = h.id
+        WHERE e.date BETWEEN ? AND ?
+        GROUP BY h.id
+        """,
+        conn,
+        params=(start_date_str, end_date_str),
+    )
+    conn.close()
+    return df
+
+
+# ----------------------
+# Weekly planner helpers
+# ----------------------
+def add_planner_task(
+    date_str,
+    title,
+    notes="",
+    frequency="once",
+    packet_id=None,
+    minutes=0,
+    hobby_id=None,
+    points=0,
+    task_id=None,
+):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO planner_tasks (date, title, notes, frequency, packet_id, minutes, hobby_id, points, task_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (date_str, title, notes, frequency, packet_id, minutes, hobby_id, points, task_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_planner_tasks_for_range(start_date_str, end_date_str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT id, date, title, notes, done, frequency, packet_id, minutes, hobby_id, points, task_id
+        FROM planner_tasks
+        WHERE date BETWEEN ? AND ?
+        ORDER BY date, id
+        """,
+        (start_date_str, end_date_str),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+
+def update_planner_task_minutes(task_id: int, minutes: int):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE planner_tasks SET minutes = ? WHERE id = ?",
+        (minutes, task_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def toggle_planner_task_done(task_id, done=True):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT date, title, notes, done, minutes, hobby_id, points, task_id FROM planner_tasks WHERE id = ?",
+        (task_id,),
+    )
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return
+    date_str, title, notes, was_done, minutes, hobby_id, points, linked_task_id = row
+
+    cursor.execute(
+        "UPDATE planner_tasks SET done = ? WHERE id = ?",
+        (1 if done else 0, task_id),
+    )
+
+    # If transitioning from not-done -> done
+    if (not was_done) and done:
+        if linked_task_id is not None:
+            # Reuse main task completion logic so it appears in tasks UI and stats
+            mark_task_done(linked_task_id, is_subtask=False)
+        elif hobby_id is not None:
+            # Fallback: log directly into entries
+            cursor.execute(
+                """
+                INSERT INTO entries (hobby_id, date, minutes, notes, points)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    hobby_id,
+                    date_str,
+                    minutes or 0,
+                    f"Weekly plan: {title}" + (f" — {notes}" if notes else ""),
+                    points or 0,
+                ),
+            )
+    conn.commit()
+    conn.close()
+
+
+def get_planner_packets():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name FROM planner_packets ORDER BY name")
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+
+def get_planner_packet_items(packet_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, title FROM planner_packet_items WHERE packet_id = ? ORDER BY id",
+        (packet_id,),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+
+def delete_planner_packet(packet_id):
+    """
+    Remove a planner packet, its items, and any planner tasks that were created
+    with this packet_id.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM planner_tasks WHERE packet_id = ?", (packet_id,))
+    cursor.execute("DELETE FROM planner_packet_items WHERE packet_id = ?", (packet_id,))
+    cursor.execute("DELETE FROM planner_packets WHERE id = ?", (packet_id,))
+    conn.commit()
+    conn.close()
+
+
+def delete_planner_task(task_id: int):
+    """
+    Remove a single planner task from the weekly planner.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM planner_tasks WHERE id = ?", (task_id,))
+    conn.commit()
+    conn.close()
+
+
 def get_hobby_points_and_minutes():
     """
     Return per-hobby totals of minutes and points, plus points per hour.
@@ -313,8 +542,10 @@ def add_task(hobby_id, name, minutes=0, points=0):
         INSERT INTO tasks (hobby_id, name, minutes, points)
         VALUES (?, ?, ?, ?)
     """, (hobby_id, name, minutes, points))
+    task_id = cursor.lastrowid
     conn.commit()
     conn.close()
+    return task_id
 
 
 def add_subtask(task_id, name, minutes=0, points=0):
