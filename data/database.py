@@ -1,6 +1,6 @@
 import sqlite3
 import pandas as pd
-from datetime import date
+from datetime import date, timedelta
 
 DB_PATH = "data/hobbies.db"
 
@@ -68,6 +68,22 @@ def init_db():
     )
     """)
 
+    # ----------------------
+    # Recurring tasks table
+    # ----------------------
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS recurring_tasks (
+                                                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                                   hobby_id INTEGER NOT NULL,
+                                                   name TEXT NOT NULL,
+                                                   minutes INTEGER DEFAULT 0,
+                                                   points INTEGER DEFAULT 0,
+                                                   frequency TEXT NOT NULL,
+                                                   last_created_date TEXT,
+                                                   FOREIGN KEY(hobby_id) REFERENCES hobbies(id)
+    )
+    """)
+
     conn.commit()
     conn.close()
 
@@ -90,6 +106,31 @@ def get_hobbies():
     hobbies = cursor.fetchall()
     conn.close()
     return hobbies
+
+
+def delete_hobby(hobby_id: int):
+    """
+    Remove a hobby and all associated data (entries, tasks, subtasks, recurring tasks).
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    # Delete entries linked to the hobby
+    cursor.execute("DELETE FROM entries WHERE hobby_id = ?", (hobby_id,))
+
+    # Delete subtasks for all tasks of this hobby
+    cursor.execute("SELECT id FROM tasks WHERE hobby_id = ?", (hobby_id,))
+    task_ids = [row[0] for row in cursor.fetchall()]
+    if task_ids:
+        cursor.executemany("DELETE FROM subtasks WHERE task_id = ?", [(tid,) for tid in task_ids])
+
+    # Delete tasks and recurring tasks, then the hobby itself
+    cursor.execute("DELETE FROM tasks WHERE hobby_id = ?", (hobby_id,))
+    cursor.execute("DELETE FROM recurring_tasks WHERE hobby_id = ?", (hobby_id,))
+    cursor.execute("DELETE FROM hobbies WHERE id = ?", (hobby_id,))
+
+    conn.commit()
+    conn.close()
 
 
 # ----------------------
@@ -152,6 +193,113 @@ def get_points_over_time():
         ORDER BY date
     """, conn)
     conn.close()
+    return df
+
+
+def get_daily_minutes_by_hobby():
+    """
+    Return a DataFrame with columns:
+    - date
+    - hobby
+    - total_minutes
+    """
+    conn = get_connection()
+    df = pd.read_sql_query(
+        """
+        SELECT e.date AS date,
+               h.name AS hobby,
+               SUM(e.minutes) AS total_minutes
+        FROM entries e
+        JOIN hobbies h ON e.hobby_id = h.id
+        GROUP BY e.date, h.id
+        ORDER BY e.date
+        """,
+        conn,
+    )
+    conn.close()
+    return df
+
+
+def get_task_completion_stats():
+    """
+    Return a DataFrame with per-hobby task completion stats:
+    - hobby
+    - total_tasks
+    - completed_tasks
+    - completion_rate (0-1)
+    """
+    conn = get_connection()
+    df = pd.read_sql_query(
+        """
+        SELECT h.name AS hobby,
+               COUNT(t.id) AS total_tasks,
+               SUM(CASE WHEN t.done = 1 THEN 1 ELSE 0 END) AS completed_tasks
+        FROM tasks t
+        JOIN hobbies h ON t.hobby_id = h.id
+        GROUP BY h.id
+        """,
+        conn,
+    )
+    conn.close()
+    if not df.empty:
+        df["completion_rate"] = df["completed_tasks"] / df["total_tasks"]
+    return df
+
+
+def get_weekly_minutes_by_hobby():
+    """
+    Return a DataFrame with weekly summed minutes per hobby.
+    Columns:
+    - year_week (e.g. '2026-10')
+    - hobby
+    - total_minutes
+    """
+    conn = get_connection()
+    df = pd.read_sql_query(
+        """
+        SELECT strftime('%Y-%W', date) AS year_week,
+               h.name AS hobby,
+               SUM(e.minutes) AS total_minutes
+        FROM entries e
+        JOIN hobbies h ON e.hobby_id = h.id
+        GROUP BY strftime('%Y-%W', date), h.id
+        ORDER BY strftime('%Y-%W', date)
+        """,
+        conn,
+    )
+    conn.close()
+    return df
+
+
+def get_hobby_points_and_minutes():
+    """
+    Return per-hobby totals of minutes and points, plus points per hour.
+    Columns:
+    - hobby
+    - total_minutes
+    - total_points
+    - points_per_hour
+    """
+    conn = get_connection()
+    df = pd.read_sql_query(
+        """
+        SELECT h.name AS hobby,
+               SUM(e.minutes) AS total_minutes,
+               SUM(e.points) AS total_points
+        FROM entries e
+        JOIN hobbies h ON e.hobby_id = h.id
+        GROUP BY h.id
+        """,
+        conn,
+    )
+    conn.close()
+    if not df.empty:
+        df["points_per_hour"] = df.apply(
+            lambda row: (row["total_points"] / (row["total_minutes"] / 60.0))
+            if row["total_minutes"] and row["total_minutes"] > 0
+            else 0,
+            axis=1,
+        )
     return df
 
 
@@ -233,6 +381,101 @@ def mark_task_done(task_id, is_subtask=False):
             INSERT INTO entries (hobby_id, date, minutes, notes, points)
             VALUES (?, ?, ?, ?, ?)
         """, (task[0], str(date.today()), minutes_to_log, f"Task: {task[3]}", points_to_log))
+
+    conn.commit()
+    conn.close()
+
+
+# ----------------------
+# Recurring Tasks
+# ----------------------
+def add_recurring_task(hobby_id, name, minutes=0, points=0, frequency="daily"):
+    """
+    Create a recurring task template. Actual tasks are generated
+    into the tasks table by ensure_recurring_tasks_for_today.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO recurring_tasks (hobby_id, name, minutes, points, frequency)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (hobby_id, name, minutes, points, frequency),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_recurring_tasks(hobby_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT id, name, minutes, points, frequency, last_created_date
+        FROM recurring_tasks
+        WHERE hobby_id = ?
+        ORDER BY id DESC
+        """,
+        (hobby_id,),
+    )
+    tasks = cursor.fetchall()
+    conn.close()
+    return tasks
+
+
+def ensure_recurring_tasks_for_today(hobby_id):
+    """
+    For the given hobby, ensure that daily/weekly recurring tasks
+    have corresponding concrete tasks created for today.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    today = date.today()
+    today_str = today.isoformat()
+
+    cursor.execute(
+        """
+        SELECT id, name, minutes, points, frequency, last_created_date
+        FROM recurring_tasks
+        WHERE hobby_id = ?
+        """,
+        (hobby_id,),
+    )
+    templates = cursor.fetchall()
+
+    for r_id, name, minutes, points, frequency, last_created in templates:
+        create_task = False
+
+        if frequency == "daily":
+            if last_created != today_str:
+                create_task = True
+        elif frequency == "weekly":
+            # Create at most one task per calendar week, on the day
+            # the user visits the page.
+            if not last_created:
+                create_task = True
+            else:
+                last_date = date.fromisoformat(last_created)
+                # Compare week starts (Monday) to avoid multiple per week
+                last_week_start = last_date - timedelta(days=last_date.weekday())
+                this_week_start = today - timedelta(days=today.weekday())
+                if last_week_start < this_week_start:
+                    create_task = True
+
+        if create_task:
+            cursor.execute(
+                """
+                INSERT INTO tasks (hobby_id, name, minutes, points)
+                VALUES (?, ?, ?, ?)
+                """,
+                (hobby_id, name, minutes, points),
+            )
+            cursor.execute(
+                "UPDATE recurring_tasks SET last_created_date = ? WHERE id = ?",
+                (today_str, r_id),
+            )
 
     conn.commit()
     conn.close()
