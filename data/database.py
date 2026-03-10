@@ -370,8 +370,13 @@ def mark_task_done(task_id, is_subtask=False):
             conn.close()
             return
 
-        # If task has subtasks, sum their minutes/points
-        cursor.execute("SELECT SUM(minutes), SUM(points) FROM subtasks WHERE task_id = ?", (task_id,))
+        # If task has subtasks, sum minutes/points ONLY for subtasks
+        # that are not yet marked done, to avoid double-counting
+        # subtasks that were already logged individually.
+        cursor.execute(
+            "SELECT SUM(minutes), SUM(points) FROM subtasks WHERE task_id = ? AND done = 0",
+            (task_id,),
+        )
         sums = cursor.fetchone()
         minutes_to_log = sums[0] if sums[0] else task[1]
         points_to_log = sums[1] if sums[1] else task[2]

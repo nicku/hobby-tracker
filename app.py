@@ -55,10 +55,10 @@ st.markdown(
     }
     .hobby-subtitle-main {
         font-family: 'Caveat', 'Nunito', system-ui, sans-serif;
-        font-size: 1.05rem;
+        font-size: 1.7rem;
         color: #7c2d12;
-        opacity: 0.9;
-        margin-bottom: 1.4rem;
+        opacity: 0.95;
+        margin-bottom: 1.6rem;
     }
     .section-card {
         padding: 0;
@@ -71,7 +71,7 @@ st.markdown(
     .section-title {
         font-family: 'Caveat', 'Nunito', system-ui, sans-serif;
         font-weight: 600;
-        font-size: 1.4rem;
+        font-size: 1.7rem;
         color: #7c2d12;
         margin-bottom: 0.4rem;
     }
@@ -82,6 +82,12 @@ st.markdown(
         margin: 0.8rem 0 0.4rem 0;
         color: #7c2d12;
     }
+
+    /* Enlarge tab labels like "Overview", "By Hobby", etc. */
+    .stTabs button[role="tab"] {
+        font-family: 'Caveat', 'Nunito', system-ui, sans-serif !important;
+        font-size: 1.2rem !important;
+    }
     .hobby-pill {
         display: inline-flex;
         align-items: center;
@@ -90,7 +96,7 @@ st.markdown(
         border-radius: 999px;
         background: linear-gradient(135deg, rgba(15,23,42,0.9), rgba(30,64,175,0.9));
         border: 1px solid rgba(251,191,36,0.85);
-        font-size: 0.95rem;
+        font-size: 1.3rem;
         color: #fefce8;
         font-family: 'Caveat', 'Nunito', system-ui, sans-serif;
     }
@@ -101,6 +107,16 @@ st.markdown(
         background: transparent !important;
         color: #fecaca !important;
         font-family: 'Caveat', 'Nunito', system-ui, sans-serif;
+    }
+
+    /* Tree-view checkbox: handwriting label + blue tick */
+    .task-tree-toggle label {
+        font-family: 'Caveat', 'Nunito', system-ui, sans-serif !important;
+        font-size: 1.15rem !important;
+        color: #7c2d12 !important;
+    }
+    .task-tree-toggle input[type="checkbox"] {
+        accent-color: #3b82f6 !important;
     }
 
     /* Task tree styling */
@@ -487,6 +503,7 @@ elif page == "Tasks":
 
             # Total minutes (sum of subtasks if any)
             total_minutes = sum(stsk[4] for stsk in subtasks) if subtasks else t[4]
+            # Original checkmark indicator when done
             done_status = "✅" if is_done else "⬜"
 
             with st.expander(f"{done_status} {t[2]} • {total_minutes} min • {t[5]} pts"):
@@ -524,7 +541,9 @@ elif page == "Tasks":
         # ---- Active tasks tree overview ----
         st.subheader("Active Tasks Overview")
         if tasks:
-            show_tree = st.checkbox("Show tasks and subtasks in a tree view", value=True)
+            st.markdown('<div class="task-tree-toggle">', unsafe_allow_html=True)
+            show_tree = st.checkbox("Show tasks and subtasks in a tree view", value=True, key="tree_view_toggle")
+            st.markdown("</div>", unsafe_allow_html=True)
             if show_tree:
                 tree_html = ['<div class="task-tree">']
                 for t in sorted(tasks, key=lambda x: x[0]):
