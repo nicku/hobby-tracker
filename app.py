@@ -188,9 +188,29 @@ st.markdown(
     }
 
    .planner-task-label {
-    font-size: 14px;
+    font-family: 'Caveat', cursive;
+    font-size: 18px;
     line-height: 1.4;
-    display: inline-block;
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    }
+    /* Glance row: keep delete and minutes compact so they don't overlap the task label */
+    .planner-delete { flex-shrink: 0 !important; }
+    .planner-delete button { width: 1.5rem !important; min-width: 1.5rem !important; padding: 0 !important; }
+    button[data-testid="stPopoverTriggerButton"] { min-width: 2rem !important; max-width: 2.5rem !important; padding: 0.2rem 0.25rem !important; font-size: 0.9rem !important; }
+    
+    .planner-trash {
+    text-decoration: none;
+    font-size: 18px;
+    color: #444;
+    cursor: pointer;
+    }
+
+    .planner-trash:hover {
+        color: #cc0000;
     }
 
     /* Hide default checkbox box for weekly planner tasks, keep label clickable */
@@ -221,10 +241,16 @@ with hero_right:
 # Sidebar Navigation
 # -------------------
 
-page = st.sidebar.radio(
-    "Navigation",
-    ["Add Hobby", "Log Activity", "View Hobby Activity", "Statistics", "Tasks", "Weekly Planner"]
-)
+# Persist current page in URL so refresh returns to same page
+nav_options = ["Add Hobby", "Log Activity", "View Hobby Activity", "Statistics", "Tasks", "Weekly Planner"]
+current_page = st.query_params.get("page", nav_options[0])
+if current_page not in nav_options:
+    current_page = nav_options[0]
+page_idx = nav_options.index(current_page)
+page = st.sidebar.radio("Navigation", nav_options, index=page_idx, key="sidebar_nav")
+if page != current_page:
+    st.query_params["page"] = page
+    st.rerun()
 
 # -------------------
 # Add Hobby Page
@@ -261,6 +287,7 @@ if page == "Add Hobby":
                 if st.button("Remove", key=remove_key):
                     db.delete_hobby(h_id)
                     st.success(f"Hobby '{h_name}' removed (with its tasks and entries).")
+                    st.query_params["page"] = "Add Hobby"
                     st.rerun()
 
 # -------------------
@@ -520,6 +547,7 @@ elif page == "Tasks":
                 checked = st.checkbox(label, value=bool(done_flag), key=f"task_weeklyplan_{p_id}")
                 if checked != bool(done_flag):
                     db.toggle_planner_task_done(p_id, done=checked)
+                    st.query_params["page"] = "Tasks"
                     st.rerun()
 
         # Layout: regular vs recurring tasks side by side
@@ -534,6 +562,7 @@ elif page == "Tasks":
             if st.button("Add Task", key="add_task_btn"):
                 db.add_task(hobby_id, task_name, task_minutes, task_points)
                 st.success("Task added!")
+                st.query_params["page"] = "Tasks"
                 st.rerun()
 
         # ---- Add New Recurring Task ----
@@ -589,6 +618,7 @@ elif page == "Tasks":
                 if not is_done and st.button(f"Mark Task '{t[2]}' Done", key=f"task_done_{t_id}"):
                     db.mark_task_done(t_id, is_subtask=False)
                     st.success("Task marked done and activity logged!")
+                    st.query_params["page"] = "Tasks"
                     st.rerun()
 
                 # Subtasks display
@@ -600,6 +630,7 @@ elif page == "Tasks":
                     if not stsk[3] and cols[1].button("Done", key=f"subtask_done_{stsk[0]}"):
                         db.mark_task_done(stsk[0], is_subtask=True)
                         st.success("Subtask marked done and activity logged!")
+                        st.query_params["page"] = "Tasks"
                         st.rerun()
 
                 # Add subtask only if task not done
@@ -614,6 +645,7 @@ elif page == "Tasks":
                     if st.button("Add Subtask", key=f"addsub_{t_id}"):
                         db.add_subtask(t_id, new_subtask_name, new_subtask_minutes, new_subtask_points)
                         st.success("Subtask added!")
+                        st.query_params["page"] = "Tasks"
                         st.rerun()
 
         # ---- Active tasks tree overview ----
@@ -786,6 +818,7 @@ elif page == "Weekly Planner":
                     task_id,
                 )
             st.success("Task added to weekly planner!")
+            st.query_params["page"] = "Weekly Planner"
             st.rerun()
 
     # Packet section (e.g., Self care)
@@ -845,6 +878,7 @@ elif page == "Weekly Planner":
                         points=est_packet_points,
                     )
                 st.success(f"Packet '{packet_name}' added to {packet_day.strftime('%a %d %b')}.")
+                st.query_params["page"] = "Weekly Planner"
                 st.rerun()
 
         # Option to remove selected packet
@@ -852,98 +886,83 @@ elif page == "Weekly Planner":
             p_id = packet_dict[packet_name]
             db.delete_planner_packet(p_id)
             st.success(f"Packet '{packet_name}' removed.")
+            st.query_params["page"] = "Weekly Planner"
             st.rerun()
     else:
         st.info("No packets defined yet.")
 
     # Visual weekly board
-st.subheader("This Week at a Glance")
+    st.subheader("This Week at a Glance")
+    cols = st.columns(7)
 
-cols = st.columns(7)
+    for i, d in enumerate(week_days):
+        with cols[i]:
+            st.markdown(
+                f"<div class='section-title'>{d.strftime('%a')}</div>",
+                unsafe_allow_html=True,
+            )
+            d_str = d.isoformat()
+            day_tasks = tasks_by_date.get(d_str, [])
 
-for i, d in enumerate(week_days):
-    with cols[i]:
+            if not day_tasks:
+                st.caption("No tasks")
 
-        st.markdown(
-            f"<div class='section-title'>{d.strftime('%a')}</div>",
-            unsafe_allow_html=True,
-        )
+            for t in day_tasks:
+                label = t["title"]
+                if t["notes"]:
+                    label += f" — {t['notes']}"
 
-        d_str = d.isoformat()
-        day_tasks = tasks_by_date.get(d_str, [])
+                row_cols = st.columns([1, 1.5, 5])
+                # Delete button (no link – avoids full page reload)
+                with row_cols[0]:
+                    st.markdown('<div class="planner-delete">', unsafe_allow_html=True)
+                    if st.button("✕", key=f"planner_del_{t['id']}"):
+                        st.query_params["page"] = "Weekly Planner"
+                        db.delete_planner_task(t["id"])
+                        st.rerun()
+                    st.markdown("</div>", unsafe_allow_html=True)
 
-        if not day_tasks:
-            st.caption("No tasks")
-
-        for t in day_tasks:
-
-            label = t["title"]
-            if t["notes"]:
-                label += f" — {t['notes']}"
-
-            row_cols = st.columns([0.7, 1.3, 4.5])
-            # Delete button
-            with row_cols[0]:
-                if st.button("🗑", key=f"planner_del_{t['id']}"):
-                    db.delete_planner_task(t["id"])
-                    st.rerun()
-
-            # Minutes popover ONLY if task is done
-            with row_cols[1]:
-
-                if t["done"]:
-
-                    default_min = t["minutes"] or 0
-                    current_min = st.session_state.get(
-                        f"planner_minutes_{t['id']}",
-                        default_min
-                    )
-
-                    pop = st.popover("min", key=f"planner_min_pop_{t['id']}")
-
+                # Minutes popover for every task (stable so no toggle bug)
+                with row_cols[1]:
+                    pop = st.popover("⏱", key=f"planner_min_pop_{t['id']}")
                     with pop:
-                        st.number_input(
-                            "Minutes",
+                        mins = st.number_input(
+                            "Actual minutes",
                             min_value=0,
                             max_value=600,
-                            value=current_min,
+                            value=t["minutes"] or 0,
                             key=f"planner_minutes_{t['id']}",
                         )
+                        if st.button("Save", key=f"planner_save_min_{t['id']}"):
+                            db.update_planner_task_minutes(t["id"], mins)
+                            st.query_params["page"] = "Weekly Planner"
+                            st.rerun()
 
-                else:
-                    # keep column spacing consistent
-                    st.write("")
-
-            # Checkbox + label
-            with row_cols[2]:
-
-                c1, c2 = st.columns([0.7, 5.3])
-
-                with c1:
-                    checked = st.checkbox(
-                        "",
-                        value=t["done"],
-                        key=f"planner_task_{t['id']}",
-                    )
-
-                with c2:
-                    st.markdown(
-                        f'<span class="planner-task-label">{label}</span>',
-                        unsafe_allow_html=True,
-                    )
-
-                if checked != t["done"]:
-
-                    # When marking done, store minutes
-                    if checked:
-                        actual_minutes = st.session_state.get(
-                            f"planner_minutes_{t['id']}",
-                            t["minutes"] or 0
+                # Checkbox + label
+                with row_cols[2]:
+                    c1, c2 = st.columns([0.4, 5.6])
+                    with c1:
+                        checked = st.checkbox(
+                            "",
+                            value=t["done"],
+                            key=f"planner_task_{t['id']}",
                         )
-                        db.update_planner_task_minutes(t["id"], actual_minutes)
+                    with c2:
+                        st.markdown(
+                            f'<span class="planner-task-label">{label}</span>',
+                            unsafe_allow_html=True,
+                        )
 
-                    db.toggle_planner_task_done(t["id"], done=checked)
-                    st.rerun()
+                    if checked != t["done"]:
+                        actual_minutes = st.session_state.get(
+                            f"planner_minutes_{t['id']}", t["minutes"] or 0
+                        )
+                        actual_minutes = int(actual_minutes) if actual_minutes is not None else (t["minutes"] or 0)
+                        db.update_planner_task_minutes(t["id"], actual_minutes)
+                        db.toggle_planner_task_done(t["id"], done=checked, minutes_override=actual_minutes)
+                        st.query_params["page"] = "Weekly Planner"
+                        st.rerun()
+
     # Estimated vs actual time per hobby for this week
     st.subheader("Estimated vs Actual Minutes per Hobby")
     # Estimated from planner tasks minutes grouped by hobby

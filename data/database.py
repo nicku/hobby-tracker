@@ -412,7 +412,8 @@ def update_planner_task_minutes(task_id: int, minutes: int):
     conn.close()
 
 
-def toggle_planner_task_done(task_id, done=True):
+def toggle_planner_task_done(task_id, done=True, minutes_override=None):
+    """When marking done, minutes_override (if set) is used for the logged entry so UI minutes are used."""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
@@ -430,13 +431,16 @@ def toggle_planner_task_done(task_id, done=True):
         (1 if done else 0, task_id),
     )
 
-    # If transitioning from not-done -> done
+    # If transitioning from not-done -> done (minutes_override used for entry; app updates planner row separately)
     if (not was_done) and done:
+        mins_to_log = int(minutes_override) if minutes_override is not None else (minutes or 0)
         if linked_task_id is not None:
-            # Reuse main task completion logic so it appears in tasks UI and stats
+            # Commit and release connection before mark_task_done opens its own (avoids DB lock)
+            conn.commit()
+            conn.close()
             mark_task_done(linked_task_id, is_subtask=False)
+            return
         elif hobby_id is not None:
-            # Fallback: log directly into entries
             cursor.execute(
                 """
                 INSERT INTO entries (hobby_id, date, minutes, notes, points)
@@ -445,7 +449,7 @@ def toggle_planner_task_done(task_id, done=True):
                 (
                     hobby_id,
                     date_str,
-                    minutes or 0,
+                    mins_to_log,
                     f"Weekly plan: {title}" + (f" — {notes}" if notes else ""),
                     points or 0,
                 ),
