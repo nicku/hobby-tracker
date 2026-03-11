@@ -165,7 +165,7 @@ st.markdown(
         color: #7c2d12;
         font-weight: 600;
         font-family: 'Caveat', cursive, system-ui, sans-serif !important;
-        font-size: 1.2rem !important;
+        font-size: 1.4rem !important;
     }
     /* Packet tasks: pin icon tinted amber/orange to distinguish from regular task pin */
     .task-tree-task .pin-packet {
@@ -202,14 +202,14 @@ st.markdown(
         padding-left: 2rem;
         margin-left: 0.5rem;
         border-left: 2px solid rgba(124, 45, 18, 0.25);
-        font-size: 1.1rem;
-        line-height: 1.35;
+        font-size: 1.2rem;
+        line-height: 1.4;
         font-family: 'Caveat', cursive, system-ui, sans-serif !important;
     }
     .planner-glance-sub {
         margin: 0.25rem 0;
-        font-size: 1.05rem;
-        line-height: 1.3;
+        font-size: 1.2rem;
+        line-height: 1.35;
         font-family: 'Caveat', cursive, system-ui, sans-serif !important;
     }
 
@@ -355,8 +355,8 @@ st.markdown(
         /* Task rows in glance: larger tap targets */
         div.stCheckbox { min-height: 2.25rem !important; }
         div.stCheckbox label { font-size: 1.05rem !important; }
-        .task-tree-task { font-size: 1.05rem !important; }
-        .planner-glance-sub { font-size: 0.98rem !important; }
+        .task-tree-task { font-size: 1.25rem !important; }
+        .planner-glance-sub { font-size: 1.1rem !important; }
 
         /* Buttons and inputs: larger touch targets, prevent iOS zoom on focus */
         [data-testid="stHorizontalBlock"] button { min-height: 2.5rem !important; padding: 0.4rem 0.75rem !important; }
@@ -507,7 +507,8 @@ elif page == "Statistics":
     else:
         st.info("No completed or planned activities for this week.")
 
-    # Estimated vs Actual minutes per hobby (current week, Sunday–Saturday; estimated only for done tasks)
+    # Estimated vs Actual minutes per hobby (current week)
+    # Estimated = total planned minutes (all scheduled tasks); Actual = logged minutes when tasks were done
     st.markdown('<div class="section-title">📊 Estimated vs Actual Minutes per Hobby (This Week)</div>', unsafe_allow_html=True)
     planner_rows = db.get_planner_tasks_for_range(week_start.isoformat(), week_end.isoformat())
     tasks_by_date = {}
@@ -524,10 +525,9 @@ elif page == "Statistics":
             hid = t.get("hobby_id")
             if hid is not None:
                 scheduled_hobby_ids.add(hid)
-            if hid is None or not t.get("done"):
-                continue
-            est_by_hobby.setdefault(hid, 0)
-            est_by_hobby[hid] += t.get("minutes") or 0
+                # Estimated = sum of ALL planned minutes for this hobby (done + undone)
+                est_by_hobby.setdefault(hid, 0)
+                est_by_hobby[hid] += t.get("minutes") or 0
     hobby_map = {hid: name for hid, name in db.get_hobbies()}
     df_actual = db.get_minutes_for_hobbies_in_range(week_start.isoformat(), week_end.isoformat())
     hobbies_list = {hobby_map[hid] for hid in scheduled_hobby_ids if hid in hobby_map}
