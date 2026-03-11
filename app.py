@@ -937,7 +937,7 @@ elif page == "Weekly Planner":
             pkt_names = {name: pid for pid, name in packets}
             edit_name = st.selectbox("Edit packet", options=list(pkt_names.keys()), key="planner_edit_packet")
             edit_pid = pkt_names[edit_name]
-            st.caption("Existing items (edit title, scheduled time for week, Update, or Remove):")
+            st.caption("Existing items (edit title + time for week, Update, or Remove):")
             items = db.get_planner_packet_items(edit_pid)
             for item_id, title in items:
                 # Default time from any instance of this packet item in the week (earlier time = appears earlier in glance)
@@ -956,7 +956,7 @@ elif page == "Weekly Planner":
                         default_time = datetime.time(9, 0)
                 else:
                     default_time = datetime.time(9, 0)
-                col_label, col_time, col_set, col_update, col_remove = st.columns([2, 1.2, 0.8, 0.6, 0.6])
+                col_label, col_time, col_update, col_remove = st.columns([2, 1.2, 0.8, 0.6])
                 with col_label:
                     edited_title = st.text_input(
                         "Item title",
@@ -972,20 +972,16 @@ elif page == "Weekly Planner":
                         key=f"packet_item_time_week_{item_id}",
                         label_visibility="collapsed",
                     )
-                with col_set:
-                    if st.button("Set for week", key=f"packet_item_set_week_{item_id}"):
-                        db.update_planner_packet_item_scheduled_time_for_week(
-                            edit_pid, title, item_time.strftime("%H:%M"),
-                            week_start.isoformat(), week_end.isoformat(),
-                        )
-                        st.toast("Scheduled time set for entire week (glance will show earlier time first).")
-                        st.query_params["page"] = "Weekly Planner"
-                        st.rerun()
                 with col_update:
                     if st.button("Update", key=f"packet_item_update_{item_id}"):
                         if edited_title.strip():
-                            db.update_planner_packet_item(item_id, edited_title.strip())
-                            st.toast("Item updated.")
+                            new_title = edited_title.strip()
+                            db.update_planner_packet_item(item_id, new_title)
+                            db.update_planner_packet_item_scheduled_time_for_week(
+                                edit_pid, new_title, item_time.strftime("%H:%M"),
+                                week_start.isoformat(), week_end.isoformat(),
+                            )
+                            st.toast("Item title & time updated for week.")
                             st.query_params["page"] = "Weekly Planner"
                             st.rerun()
                         else:
