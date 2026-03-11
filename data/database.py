@@ -357,6 +357,78 @@ def get_minutes_for_hobbies_in_range(start_date_str, end_date_str):
     return df
 
 
+def get_completed_count_per_hobby_for_week():
+    """
+    Count of completed activities (entries) per hobby in the last 7 days.
+    Returns DataFrame with columns: hobby, completed_count.
+    """
+    end_date = date.today()
+    start_date = end_date - timedelta(days=6)
+    conn = get_connection()
+    df = pd.read_sql_query(
+        """
+        SELECT h.name AS hobby,
+               COUNT(e.id) AS completed_count
+        FROM entries e
+        JOIN hobbies h ON e.hobby_id = h.id
+        WHERE e.date BETWEEN ? AND ?
+        GROUP BY h.id
+        ORDER BY completed_count DESC
+        """,
+        conn,
+        params=(start_date.isoformat(), end_date.isoformat()),
+    )
+    conn.close()
+    return df
+
+
+def get_completed_and_estimated_tasks_per_hobby_for_week(week_start_str: str, week_end_str: str):
+    """
+    For the given week (Sunday–Saturday), per hobby:
+    - completed_count: count of entries (logged completions)
+    - estimated_count: count of planner_tasks with that hobby_id in the week (planned tasks)
+    Returns DataFrame with columns: hobby, completed_count, estimated_count.
+    """
+    conn = get_connection()
+    # Completed: entries in range
+    df_completed = pd.read_sql_query(
+        """
+        SELECT h.name AS hobby,
+               COUNT(e.id) AS completed_count
+        FROM entries e
+        JOIN hobbies h ON e.hobby_id = h.id
+        WHERE e.date BETWEEN ? AND ?
+        GROUP BY h.id
+        """,
+        conn,
+        params=(week_start_str, week_end_str),
+    )
+    # Estimated: planner_tasks with hobby_id in range (one row per planned task occurrence)
+    df_estimated = pd.read_sql_query(
+        """
+        SELECT h.name AS hobby,
+               COUNT(p.id) AS estimated_count
+        FROM planner_tasks p
+        JOIN hobbies h ON p.hobby_id = h.id
+        WHERE p.date BETWEEN ? AND ?
+        GROUP BY h.id
+        """,
+        conn,
+        params=(week_start_str, week_end_str),
+    )
+    conn.close()
+    if df_completed.empty and df_estimated.empty:
+        return pd.DataFrame(columns=["hobby", "completed_count", "estimated_count"])
+    # Merge so we have all hobbies that have either completed or estimated
+    df = df_completed.merge(
+        df_estimated, on="hobby", how="outer"
+    ).fillna(0)
+    df["completed_count"] = df["completed_count"].astype(int)
+    df["estimated_count"] = df["estimated_count"].astype(int)
+    df = df.sort_values("completed_count", ascending=False)
+    return df
+
+
 # ----------------------
 # Weekly planner helpers
 # ----------------------
@@ -412,6 +484,24 @@ def update_planner_task_minutes(task_id: int, minutes: int):
     conn.close()
 
 
+def set_planner_done_for_linked_task(linked_task_id: int, done: bool = True, minutes=None):
+    """Sync: when a task is marked done in the task manager, set linked planner_tasks.done (no new entry). Optionally set minutes too."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    if minutes is not None:
+        cursor.execute(
+            "UPDATE planner_tasks SET done = ?, minutes = ? WHERE task_id = ?",
+            (1 if done else 0, minutes, linked_task_id),
+        )
+    else:
+        cursor.execute(
+            "UPDATE planner_tasks SET done = ? WHERE task_id = ?",
+            (1 if done else 0, linked_task_id),
+        )
+    conn.commit()
+    conn.close()
+
+
 def toggle_planner_task_done(task_id, done=True, minutes_override=None):
     """When marking done, minutes_override (if set) is used for the logged entry so UI minutes are used."""
     conn = get_connection()
@@ -425,6 +515,13 @@ def toggle_planner_task_done(task_id, done=True, minutes_override=None):
         conn.close()
         return
     date_str, title, notes, was_done, minutes, hobby_id, points, linked_task_id = row
+
+    # If undoing and this row is linked to a task, sync task manager (task + all planner rows for that task)
+    if not done and linked_task_id is not None:
+        conn.commit()
+        conn.close()
+        mark_task_undone(linked_task_id)
+        return
 
     cursor.execute(
         "UPDATE planner_tasks SET done = ? WHERE id = ?",
@@ -454,6 +551,37 @@ def toggle_planner_task_done(task_id, done=True, minutes_override=None):
                     points or 0,
                 ),
             )
+    conn.commit()
+    conn.close()
+
+
+def set_planner_row_done_only(planner_id: int, done: bool = True, minutes_override=None):
+    """Update only this planner row's done state (and log one entry when marking done). Use when the same task appears on multiple days so each day can be toggled independently."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT date, title, notes, done, minutes, hobby_id, points FROM planner_tasks WHERE id = ?",
+        (planner_id,),
+    )
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return
+    date_str, title, notes, was_done, minutes, hobby_id, points = row
+
+    cursor.execute(
+        "UPDATE planner_tasks SET done = ? WHERE id = ?",
+        (1 if done else 0, planner_id),
+    )
+    if (not was_done) and done and hobby_id is not None:
+        mins = int(minutes_override) if minutes_override is not None else (minutes or 0)
+        cursor.execute(
+            """
+            INSERT INTO entries (hobby_id, date, minutes, notes, points)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (hobby_id, date_str, mins, f"Weekly plan: {title}" + (f" — {notes}" if notes else ""), points or 0),
+        )
     conn.commit()
     conn.close()
 
@@ -493,13 +621,59 @@ def delete_planner_packet(packet_id):
     conn.close()
 
 
-def delete_planner_task(task_id: int):
-    """
-    Remove a single planner task from the weekly planner.
-    """
+def add_planner_packet(name: str) -> int:
+    """Create a new packet (if it does not already exist) and return its id."""
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM planner_tasks WHERE id = ?", (task_id,))
+    cursor.execute("SELECT id FROM planner_packets WHERE name = ?", (name,))
+    row = cursor.fetchone()
+    if row:
+        packet_id = row[0]
+    else:
+        cursor.execute("INSERT INTO planner_packets (name) VALUES (?)", (name,))
+        packet_id = cursor.lastrowid
+        conn.commit()
+    conn.close()
+    return packet_id
+
+
+def add_planner_packet_item(packet_id: int, title: str):
+    """Add an item (title) to an existing packet."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO planner_packet_items (packet_id, title) VALUES (?, ?)",
+        (packet_id, title),
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_planner_task(planner_id: int):
+    """Remove a single planner task row from the weekly planner."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM planner_tasks WHERE id = ?", (planner_id,))
+    conn.commit()
+    conn.close()
+
+
+def delete_planner_tasks_for_linked_task(task_id: int):
+    """Remove all planner rows linked to this task (removes task from the week in the glance)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM planner_tasks WHERE task_id = ?", (task_id,))
+    conn.commit()
+    conn.close()
+
+
+def delete_task(task_id: int):
+    """Remove task from DB: subtasks, planner rows for this task, then the task. Task disappears from Existing tasks and glance."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM subtasks WHERE task_id = ?", (task_id,))
+    cursor.execute("DELETE FROM planner_tasks WHERE task_id = ?", (task_id,))
+    cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
     conn.commit()
     conn.close()
 
@@ -581,7 +755,8 @@ def get_subtasks(task_id):
     return subtasks
 
 
-def mark_task_done(task_id, is_subtask=False):
+def mark_task_done(task_id, is_subtask=False, actual_minutes_override=None):
+    """When marking a main task done, actual_minutes_override (if set) is used for the logged entry. Syncs planner_tasks.done for linked rows."""
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -606,14 +781,13 @@ def mark_task_done(task_id, is_subtask=False):
             return
 
         # If task has subtasks, sum minutes/points ONLY for subtasks
-        # that are not yet marked done, to avoid double-counting
-        # subtasks that were already logged individually.
+        # that are not yet marked done, to avoid double-counting.
         cursor.execute(
             "SELECT SUM(minutes), SUM(points) FROM subtasks WHERE task_id = ? AND done = 0",
             (task_id,),
         )
         sums = cursor.fetchone()
-        minutes_to_log = sums[0] if sums[0] else task[1]
+        minutes_to_log = int(actual_minutes_override) if actual_minutes_override is not None else (sums[0] if sums[0] else task[1])
         points_to_log = sums[1] if sums[1] else task[2]
 
         cursor.execute("UPDATE tasks SET done = 1 WHERE id = ?", (task_id,))
@@ -622,6 +796,38 @@ def mark_task_done(task_id, is_subtask=False):
             VALUES (?, ?, ?, ?, ?)
         """, (task[0], str(date.today()), minutes_to_log, f"Task: {task[3]}", points_to_log))
 
+    conn.commit()
+    conn.close()
+
+    # Sync: any planner row linked to this task shows done in weekly glance (and same minutes if provided)
+    if not is_subtask:
+        set_planner_done_for_linked_task(task_id, done=True, minutes=int(actual_minutes_override) if actual_minutes_override is not None else None)
+
+
+def mark_task_undone(task_id):
+    """Set task to not done and sync all linked planner rows to undone (no entry deletion)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE tasks SET done = 0 WHERE id = ?", (task_id,))
+    conn.commit()
+    conn.close()
+    set_planner_done_for_linked_task(task_id, done=False)
+
+
+def mark_subtask_undone(subtask_id: int):
+    """Set subtask to not done (no entry deletion)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE subtasks SET done = 0 WHERE id = ?", (subtask_id,))
+    conn.commit()
+    conn.close()
+
+
+def delete_subtask(subtask_id: int):
+    """Remove a subtask."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM subtasks WHERE id = ?", (subtask_id,))
     conn.commit()
     conn.close()
 
