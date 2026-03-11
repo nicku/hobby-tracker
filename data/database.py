@@ -132,6 +132,8 @@ def init_db():
         cursor.execute("ALTER TABLE planner_tasks ADD COLUMN points INTEGER DEFAULT 0")
     if "task_id" not in cols:
         cursor.execute("ALTER TABLE planner_tasks ADD COLUMN task_id INTEGER")
+    if "scheduled_time" not in cols:
+        cursor.execute("ALTER TABLE planner_tasks ADD COLUMN scheduled_time TEXT")
 
     # Seed a default "Self care" packet if it doesn't exist yet
     cursor.execute("SELECT id FROM planner_packets WHERE name = ?", ("Self care",))
@@ -442,29 +444,32 @@ def add_planner_task(
     hobby_id=None,
     points=0,
     task_id=None,
+    scheduled_time=None,
 ):
+    """scheduled_time: optional "HH:MM" string for ordering in the glance (tasks with time first, then unscheduled)."""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
         """
-        INSERT INTO planner_tasks (date, title, notes, frequency, packet_id, minutes, hobby_id, points, task_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO planner_tasks (date, title, notes, frequency, packet_id, minutes, hobby_id, points, task_id, scheduled_time)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (date_str, title, notes, frequency, packet_id, minutes, hobby_id, points, task_id),
+        (date_str, title, notes, frequency, packet_id, minutes, hobby_id, points, task_id, scheduled_time),
     )
     conn.commit()
     conn.close()
 
 
 def get_planner_tasks_for_range(start_date_str, end_date_str):
+    """Return planner rows ordered by date, then scheduled_time (NULL last), then id."""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
         """
-        SELECT id, date, title, notes, done, frequency, packet_id, minutes, hobby_id, points, task_id
+        SELECT id, date, title, notes, done, frequency, packet_id, minutes, hobby_id, points, task_id, scheduled_time
         FROM planner_tasks
         WHERE date BETWEEN ? AND ?
-        ORDER BY date, id
+        ORDER BY date, CASE WHEN scheduled_time IS NULL OR scheduled_time = '' THEN 1 ELSE 0 END, scheduled_time, id
         """,
         (start_date_str, end_date_str),
     )
@@ -479,6 +484,36 @@ def update_planner_task_minutes(task_id: int, minutes: int):
     cursor.execute(
         "UPDATE planner_tasks SET minutes = ? WHERE id = ?",
         (minutes, task_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_planner_task_scheduled_time(planner_id: int, scheduled_time: str | None):
+    """Set scheduled_time for a planner row (e.g. "09:00"). Pass None or "" to clear."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE planner_tasks SET scheduled_time = ? WHERE id = ?",
+        (scheduled_time if scheduled_time else None, planner_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_planner_packet_item_scheduled_time_for_week(
+    packet_id: int, title: str, scheduled_time: str | None, start_date_str: str, end_date_str: str
+):
+    """Set scheduled_time for all planner_tasks in the date range that match this packet item (packet_id + title)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        UPDATE planner_tasks
+        SET scheduled_time = ?
+        WHERE packet_id = ? AND title = ? AND date BETWEEN ? AND ?
+        """,
+        (scheduled_time if scheduled_time else None, packet_id, title, start_date_str, end_date_str),
     )
     conn.commit()
     conn.close()
@@ -695,6 +730,28 @@ def delete_planner_packet_item(item_id: int):
     conn.close()
 
 
+def update_general_planner_task_title(
+    old_title: str, new_title: str, start_date_str: str, end_date_str: str
+):
+    """Update title for all general (no hobby, no packet) planner rows in the date range with the given title."""
+    if not new_title or not new_title.strip():
+        return
+    conn = get_connection()
+    cursor = conn.cursor()
+    name = new_title.strip()
+    cursor.execute(
+        """
+        UPDATE planner_tasks
+        SET title = ?
+        WHERE task_id IS NULL AND (packet_id IS NULL OR packet_id = 0)
+          AND title = ? AND date BETWEEN ? AND ?
+        """,
+        (name, old_title, start_date_str, end_date_str),
+    )
+    conn.commit()
+    conn.close()
+
+
 def delete_planner_task(planner_id: int):
     """Remove a single planner task row from the weekly planner."""
     conn = get_connection()
@@ -709,6 +766,19 @@ def delete_planner_tasks_for_linked_task(task_id: int):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("DELETE FROM planner_tasks WHERE task_id = ?", (task_id,))
+    conn.commit()
+    conn.close()
+
+
+def update_task_name(task_id: int, new_name: str):
+    """Update a task's name and sync linked planner_tasks so the glance shows the new title."""
+    if not new_name or not new_name.strip():
+        return
+    conn = get_connection()
+    cursor = conn.cursor()
+    name = new_name.strip()
+    cursor.execute("UPDATE tasks SET name = ? WHERE id = ?", (name, task_id))
+    cursor.execute("UPDATE planner_tasks SET title = ? WHERE task_id = ?", (name, task_id))
     conn.commit()
     conn.close()
 

@@ -1,3 +1,11 @@
+import sys
+from pathlib import Path
+
+# Ensure project root is on path (e.g. when running streamlit from another directory)
+_project_root = Path(__file__).resolve().parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
 import streamlit as st
 import data.database as db
 from datetime import date
@@ -196,6 +204,14 @@ st.markdown(
     @keyframes taskDone {
         from { opacity: 0.5; transform: scale(0.98); }
         to { opacity: 1; transform: scale(1); }
+    }
+    .glance-scheduled-divider {
+        margin: 0.5rem 0 0.35rem 0;
+        padding: 0 0 0.35rem 0;
+        border-bottom: 1px dashed rgba(124, 45, 18, 0.4);
+        font-size: 0.75rem;
+        color: rgba(124, 45, 18, 0.6);
+        font-family: 'Nunito', system-ui, sans-serif;
     }
     .planner-glance-tree {
         margin: 0.2rem 0 0.4rem 0;
@@ -513,7 +529,7 @@ elif page == "Statistics":
     planner_rows = db.get_planner_tasks_for_range(week_start.isoformat(), week_end.isoformat())
     tasks_by_date = {}
     for row in planner_rows:
-        t_id, d_str, title, notes, done_flag, freq, packet_id, minutes, hobby_id, points, linked_task_id = row
+        t_id, d_str, title, notes, done_flag, freq, packet_id, minutes, hobby_id, points, linked_task_id, _ = row
         tasks_by_date.setdefault(d_str, []).append({
             "id": t_id, "title": title, "notes": notes, "done": bool(done_flag),
             "minutes": minutes, "hobby_id": hobby_id, "points": points,
@@ -591,7 +607,7 @@ elif page == "Statistics":
     planner_rows = db.get_planner_tasks_for_range(week_start.isoformat(), week_end.isoformat())
     by_day_packet = {}
     for row in planner_rows:
-        t_id, d_str, title, notes, done_flag, freq, packet_id, minutes, hobby_id, points, linked_task_id = row
+        t_id, d_str, title, notes, done_flag, freq, packet_id, minutes, hobby_id, points, linked_task_id, _ = row
         if packet_id is None:
             continue
         key = (d_str, packet_id)
@@ -651,7 +667,7 @@ elif page == "Weekly Planner":
     )
     tasks_by_date = {}
     for row in planner_rows:
-        t_id, d_str, title, notes, done_flag, freq, packet_id, minutes, hobby_id, points, linked_task_id = row
+        t_id, d_str, title, notes, done_flag, freq, packet_id, minutes, hobby_id, points, linked_task_id, scheduled_time = row
         tasks_by_date.setdefault(d_str, []).append(
             {
                 "id": t_id,
@@ -664,6 +680,7 @@ elif page == "Weekly Planner":
                 "hobby_id": hobby_id,
                 "points": points,
                 "task_id": linked_task_id,
+                "scheduled_time": scheduled_time,
             }
         )
 
@@ -684,8 +701,20 @@ elif page == "Weekly Planner":
             if not day_tasks:
                 st.caption("No tasks")
 
-            for t in day_tasks:
+            for idx, t in enumerate(day_tasks):
+                # Separator between scheduled and unscheduled (tasks are ordered: scheduled first, then unscheduled)
+                has_time = t.get("scheduled_time") and len((t.get("scheduled_time") or "").strip()) >= 5
+                prev_had_time = (
+                    day_tasks[idx - 1].get("scheduled_time") and len((day_tasks[idx - 1].get("scheduled_time") or "").strip()) >= 5
+                ) if idx > 0 else False
+                if not has_time and prev_had_time:
+                    st.markdown(
+                        '<div class="glance-scheduled-divider">— no time set —</div>',
+                        unsafe_allow_html=True,
+                    )
                 label = t["title"]
+                if t.get("scheduled_time"):
+                    label = f"{t['scheduled_time']}  {label}"
                 if t["notes"]:
                     label += f" — {t['notes']}"
                 done_class = " glance-task-done" if t["done"] else ""
@@ -804,6 +833,11 @@ elif page == "Weekly Planner":
             options=hobby_options,
             key="planner_add_hobby",
         )
+        add_scheduled_time = st.checkbox("Set scheduled time (order in glance)", key="planner_add_scheduled_time")
+        scheduled_time_val = None
+        if add_scheduled_time:
+            t = st.time_input("Time", value=datetime.time(9, 0), key="planner_add_time", label_visibility="collapsed")
+            scheduled_time_val = t.strftime("%H:%M")
         is_general_task = hobby_for_task == "— General (no hobby) —"
         if st.button("Add Weekly Task", key="planner_add_btn"):
             if not title_for_task.strip():
@@ -823,6 +857,7 @@ elif page == "Weekly Planner":
                             None,
                             0,
                             None,
+                            scheduled_time_val,
                         )
                 else:
                     db.add_planner_task(
@@ -835,6 +870,7 @@ elif page == "Weekly Planner":
                         None,
                         0,
                         None,
+                        scheduled_time_val,
                     )
                 st.toast("General task added to week.", icon="✅")
                 st.query_params["page"] = "Weekly Planner"
@@ -861,6 +897,7 @@ elif page == "Weekly Planner":
                             hobby_dict[hobby_for_task],
                             0,
                             task_id,
+                            scheduled_time_val,
                         )
                 else:
                     task_id = db.add_task(
@@ -879,6 +916,7 @@ elif page == "Weekly Planner":
                         hobby_dict[hobby_for_task],
                         0,
                         task_id,
+                        scheduled_time_val,
                     )
                 st.toast("Task added to weekly planner!", icon="✅")
                 st.query_params["page"] = "Weekly Planner"
@@ -899,10 +937,26 @@ elif page == "Weekly Planner":
             pkt_names = {name: pid for pid, name in packets}
             edit_name = st.selectbox("Edit packet", options=list(pkt_names.keys()), key="planner_edit_packet")
             edit_pid = pkt_names[edit_name]
-            st.caption("Existing items (edit title and Update, or Remove):")
+            st.caption("Existing items (edit title, scheduled time for week, Update, or Remove):")
             items = db.get_planner_packet_items(edit_pid)
             for item_id, title in items:
-                col_label, col_update, col_remove = st.columns([2, 0.6, 0.6])
+                # Default time from any instance of this packet item in the week (earlier time = appears earlier in glance)
+                current_time_str = None
+                for rows in tasks_by_date.values():
+                    for task in rows:
+                        if task.get("packet_id") == edit_pid and task.get("title") == title and task.get("scheduled_time"):
+                            current_time_str = task.get("scheduled_time")
+                            break
+                    if current_time_str:
+                        break
+                if current_time_str and len(current_time_str) >= 5:
+                    try:
+                        default_time = datetime.time(int(current_time_str[:2]), int(current_time_str[3:5]))
+                    except (ValueError, IndexError):
+                        default_time = datetime.time(9, 0)
+                else:
+                    default_time = datetime.time(9, 0)
+                col_label, col_time, col_set, col_update, col_remove = st.columns([2, 1.2, 0.8, 0.6, 0.6])
                 with col_label:
                     edited_title = st.text_input(
                         "Item title",
@@ -911,6 +965,22 @@ elif page == "Weekly Planner":
                         label_visibility="collapsed",
                         placeholder="Item title",
                     )
+                with col_time:
+                    item_time = st.time_input(
+                        "Time",
+                        value=default_time,
+                        key=f"packet_item_time_week_{item_id}",
+                        label_visibility="collapsed",
+                    )
+                with col_set:
+                    if st.button("Set for week", key=f"packet_item_set_week_{item_id}"):
+                        db.update_planner_packet_item_scheduled_time_for_week(
+                            edit_pid, title, item_time.strftime("%H:%M"),
+                            week_start.isoformat(), week_end.isoformat(),
+                        )
+                        st.toast("Scheduled time set for entire week (glance will show earlier time first).")
+                        st.query_params["page"] = "Weekly Planner"
+                        st.rerun()
                 with col_update:
                     if st.button("Update", key=f"packet_item_update_{item_id}"):
                         if edited_title.strip():
@@ -959,14 +1029,30 @@ elif page == "Weekly Planner":
                 value=0,
                 key="planner_packet_minutes",
             )
+            p_id_for_items = packet_dict.get(packet_name)
+            items_for_packet = db.get_planner_packet_items(p_id_for_items) if p_id_for_items else []
+            set_packet_times = st.checkbox("Set scheduled time for each item", key="planner_packet_set_times")
+            item_times = {}
+            if set_packet_times and items_for_packet and p_id_for_items:
+                st.caption("Time for each item (order in glance):")
+                for i, (item_id, item_title) in enumerate(items_for_packet):
+                    default = datetime.time(9, min(59, i * 10))
+                    item_times[item_id] = st.time_input(
+                        item_title,
+                        value=default,
+                        key=f"packet_item_time_{p_id_for_items}_{item_id}",
+                        label_visibility="collapsed",
+                    )
             if st.button("Add Packet to Day", key="planner_add_packet_btn"):
                 p_id = packet_dict[packet_name]
                 existing_for_day = tasks_by_date.get(packet_day.isoformat(), [])
                 if any(t["packet_id"] == p_id for t in existing_for_day):
                     st.warning("This packet has already been added for the selected day.")
                 else:
-                    items = db.get_planner_packet_items(p_id)
-                    for _, item_title in items:
+                    for item_id, item_title in items_for_packet:
+                        scheduled_time = None
+                        if set_packet_times and item_id in item_times:
+                            scheduled_time = item_times[item_id].strftime("%H:%M")
                         db.add_planner_task(
                             packet_day.isoformat(),
                             item_title,
@@ -976,10 +1062,22 @@ elif page == "Weekly Planner":
                             minutes=est_packet_minutes,
                             hobby_id=None,
                             points=0,
+                            scheduled_time=scheduled_time,
                         )
                     st.success(f"Packet '{packet_name}' added to {packet_day.strftime('%a %d %b')}.")
                     st.query_params["page"] = "Weekly Planner"
                     st.rerun()
+            set_packet_times_all = st.checkbox(
+                "Set scheduled time for items (when adding to all days)",
+                key="planner_packet_set_times_all",
+            )
+            start_time_all = None
+            if set_packet_times_all:
+                start_time_all = st.time_input(
+                    "First item at (then +10 min per item)",
+                    value=datetime.time(9, 0),
+                    key="planner_packet_start_time_all",
+                )
             if st.button("Add Packet for All Days", key="planner_add_packet_all_btn"):
                 p_id = packet_dict[packet_name]
                 already = {
@@ -993,7 +1091,12 @@ elif page == "Weekly Planner":
                     d_str = d.isoformat()
                     if d_str in already:
                         continue
-                    for _, item_title in items:
+                    for i, (_, item_title) in enumerate(items):
+                        scheduled_time = None
+                        if set_packet_times_all and start_time_all is not None:
+                            total_mins = start_time_all.hour * 60 + start_time_all.minute + i * 10
+                            h, m = divmod(total_mins, 60)
+                            scheduled_time = f"{h:02d}:{m:02d}"
                         db.add_planner_task(
                             d_str,
                             item_title,
@@ -1003,6 +1106,7 @@ elif page == "Weekly Planner":
                             minutes=est_packet_minutes,
                             hobby_id=None,
                             points=0,
+                            scheduled_time=scheduled_time,
                         )
                 st.success(f"Packet '{packet_name}' added to all days of the week.")
                 st.query_params["page"] = "Weekly Planner"
@@ -1016,97 +1120,267 @@ elif page == "Weekly Planner":
     else:
         st.info("No packets defined yet.")
 
-    # Existing tasks (manage here – syncs to glance above)
-    if hobbies:
-        hobby_dict = {name: id for id, name in hobbies}
+    # Build lists of general (no-hobby) and packet planner rows for Existing Tasks
+    general_by_title = {}
+    packet_by_key = {}
+    packet_id_to_name = {pid: name for pid, name in packets} if packets else {}
+    for d_str, rows in tasks_by_date.items():
+        for task in rows:
+            if task.get("task_id") is None and task.get("packet_id") is None:
+                general_by_title.setdefault(task["title"], []).append((d_str, task))
+            if task.get("packet_id") is not None:
+                key = (task["packet_id"], task["title"])
+                packet_by_key.setdefault(key, []).append((d_str, task))
+
+    # Existing tasks (manage here – syncs to glance above). One list: hobby, general, or packet; search filters.
+    has_hobby_tasks = bool(hobbies)
+    has_general = bool(general_by_title)
+    has_packet_items = bool(packet_by_key)
+    if has_hobby_tasks or has_general or has_packet_items:
         st.subheader("Existing Tasks (manage tasks – changes sync to the glance)")
-        task_hobby_name = st.selectbox("Select Hobby", list(hobby_dict.keys()), key="planner_task_hobby")
-        task_hobby_id = hobby_dict[task_hobby_name]
-        db.ensure_recurring_tasks_for_today(task_hobby_id)
-        tasks = db.get_tasks(task_hobby_id)
-        task_search = st.text_input("Search tasks", placeholder="Filter by task name...", key="planner_task_search")
-        search_lower = (task_search or "").strip().lower()
-        done_tasks = [t for t in tasks if t[3]]
-        recent_done_ids = {t[0] for t in sorted(done_tasks, key=lambda x: x[0], reverse=True)[:10]}
-        tasks_sorted = sorted(tasks, key=lambda x: x[0], reverse=True)
-        if search_lower:
-            tasks_sorted = [t for t in tasks_sorted if search_lower in (t[2] or "").lower()]
-        for t in tasks_sorted:
-            t_id = t[0]
-            is_done = bool(t[3])
-            if is_done and t_id not in recent_done_ids:
-                continue
-            subtasks = db.get_subtasks(t_id)
-            total_minutes = sum(stsk[4] for stsk in subtasks) if subtasks else t[4]
-            done_status = "✅" if is_done else "⬜"
-            with st.expander(f"{done_status} {t[2]} • {total_minutes} min", expanded=False):
-                if not is_done:
-                    all_subtasks_done = (not subtasks) or all(bool(stsk[3]) for stsk in subtasks)
-                    if subtasks and not all_subtasks_done:
-                        st.caption("Complete all subtasks below to mark this task done.")
-                    actual_mins = st.number_input("Actual minutes (for log)", min_value=0, max_value=600, value=total_minutes, key=f"task_actual_min_{t_id}")
-                    if (not subtasks or all_subtasks_done) and st.button(f"Mark Task '{t[2]}' Done", key=f"task_done_{t_id}"):
-                        db.mark_task_done(t_id, is_subtask=False, actual_minutes_override=actual_mins)
-                        st.toast("Task marked done and activity logged!", icon="✅")
-                        st.query_params["page"] = "Weekly Planner"
-                        st.rerun()
-                else:
-                    if st.button(f"Mark '{t[2]}' Undone", key=f"task_undone_{t_id}"):
-                        db.mark_task_undone(t_id)
-                        st.success("Task marked undone (also in weekly glance).")
-                        st.query_params["page"] = "Weekly Planner"
-                        st.rerun()
-                if st.button("Remove from week", key=f"task_remove_week_{t_id}"):
-                    db.delete_task(t_id)
-                    st.success("Task removed from week and from list.")
-                    st.query_params["page"] = "Weekly Planner"
-                    st.rerun()
-                # For daily tasks: option to remove from a single day
-                planner_entries = [
-                    (d_str, task["id"])
-                    for d_str, rows in tasks_by_date.items()
-                    for task in rows
-                    if task.get("task_id") == t_id
-                ]
-                if len(planner_entries) > 1:
-                    day_options = {d_str: pid for d_str, pid in sorted(planner_entries)}
-                    remove_day = st.selectbox(
-                        "Remove from day",
+        hobby_dict = {name: id for id, name in hobbies} if hobbies else {}
+        task_list_options = list(hobby_dict.keys())
+        if has_general:
+            task_list_options.append("— General (no hobby) —")
+        if has_packet_items:
+            task_list_options.append("— Packet items —")
+        task_list_choice = st.selectbox(
+            "Show tasks from",
+            task_list_options,
+            key="planner_task_list_choice",
+        )
+        task_search = st.text_input("Search tasks", placeholder="Filter by name...", key="planner_task_search")
+
+        if task_list_choice == "— General (no hobby) —":
+            search_lower = (task_search or "").strip().lower()
+            general_sorted = sorted(general_by_title.items())
+            if search_lower:
+                general_sorted = [(title, entries) for title, entries in general_sorted if search_lower in title.lower()]
+            for title, entries in general_sorted:
+                day_planner = [(d_str, task["id"]) for d_str, task in entries]
+                first_id = entries[0][1]["id"]
+                first_task = entries[0][1]
+                done_status = "✅" if first_task.get("done") else "⬜"
+                with st.expander(f"{done_status} {title}", expanded=False):
+                    # Edit task name (general tasks: updates all instances in the week)
+                    edited_gen_name = st.text_input(
+                        "Task name",
+                        value=title,
+                        key=f"gen_edit_name_{first_id}",
+                        label_visibility="collapsed",
+                        placeholder="Task name",
+                    )
+                    if st.button("Update task name", key=f"gen_update_name_btn_{first_id}"):
+                        if edited_gen_name.strip():
+                            db.update_general_planner_task_title(
+                                title, edited_gen_name.strip(),
+                                week_start.isoformat(), week_end.isoformat(),
+                            )
+                            st.toast("Task name updated (glance updated too).")
+                            st.query_params["page"] = "Weekly Planner"
+                            st.rerun()
+                        else:
+                            st.warning("Task name cannot be empty.")
+                    day_options = {d_str: pid for d_str, pid in sorted(day_planner)}
+                    time_day = st.selectbox(
+                        "Day (for time or remove)",
                         options=list(day_options.keys()),
-                        key=f"task_remove_day_{t_id}",
+                        key=f"gen_time_day_{first_id}",
                         format_func=lambda x: datetime.datetime.strptime(x, "%Y-%m-%d").strftime("%a %d %b"),
                     )
-                    if st.button("Remove from this day only", key=f"task_remove_day_btn_{t_id}"):
-                        db.delete_planner_task(day_options[remove_day])
-                        st.success("Removed from that day only.")
+                    planner_id = day_options[time_day]
+                    current_time_str = next(
+                        (task.get("scheduled_time") for task in tasks_by_date.get(time_day, []) if task["id"] == planner_id),
+                        None,
+                    )
+                    if current_time_str and len(current_time_str) >= 5:
+                        try:
+                            h, m = int(current_time_str[:2]), int(current_time_str[3:5])
+                            default_time = datetime.time(h, m)
+                        except (ValueError, IndexError):
+                            default_time = datetime.time(9, 0)
+                    else:
+                        default_time = datetime.time(9, 0)
+                    new_time = st.time_input("Scheduled time (order in glance)", value=default_time, key=f"gen_scheduled_time_{planner_id}")
+                    if st.button("Set scheduled time", key=f"gen_set_time_{planner_id}"):
+                        db.update_planner_task_scheduled_time(planner_id, new_time.strftime("%H:%M"))
+                        st.toast("Scheduled time updated.")
                         st.query_params["page"] = "Weekly Planner"
                         st.rerun()
-                for stsk in subtasks:
-                    st_done = "✅" if stsk[3] else "⬜"
-                    cols = st.columns([3, 1, 1])
-                    cols[0].write(f"{st_done} {stsk[2]} ({stsk[4]} min)")
-                    if not stsk[3] and cols[1].button("Done", key=f"subtask_done_{stsk[0]}"):
-                        db.mark_task_done(stsk[0], is_subtask=True)
-                        st.success("Subtask marked done and activity logged!")
+                    if st.button("Remove from selected day only", key=f"gen_remove_day_{planner_id}"):
+                        db.delete_planner_task(planner_id)
+                        st.toast("Removed from that day only.")
                         st.query_params["page"] = "Weekly Planner"
                         st.rerun()
-                    if stsk[3] and cols[1].button("Undone", key=f"subtask_undone_{stsk[0]}"):
-                        db.mark_subtask_undone(stsk[0])
-                        st.success("Subtask marked undone.")
+                    if st.button("Remove from week (all days for this task)", key=f"gen_remove_week_{first_id}"):
+                        for _d, t in entries:
+                            db.delete_planner_task(t["id"])
+                        st.toast("Removed from week.")
                         st.query_params["page"] = "Weekly Planner"
                         st.rerun()
-                    if cols[2].button("Remove", key=f"subtask_remove_{stsk[0]}"):
-                        db.delete_subtask(stsk[0])
-                        st.success("Subtask removed.")
-                        st.query_params["page"] = "Weekly Planner"
-                        st.rerun()
-                if not is_done:
-                    new_sub_name = st.text_input("New subtask name", key=f"newsub_{t_id}")
-                    new_sub_min = st.number_input("Minutes", min_value=0, max_value=1000, value=0, key=f"sub_min_{t_id}")
-                    if st.button("Add Subtask", key=f"addsub_{t_id}") and new_sub_name.strip():
-                        db.add_subtask(t_id, new_sub_name.strip(), new_sub_min, 0)
-                        st.success("Subtask added!")
+                    row_done = next((t["done"] for d_str, t in entries if t["id"] == planner_id), False)
+                    if st.button("Mark done" if not row_done else "Mark undone", key=f"gen_done_{planner_id}"):
+                        db.toggle_planner_task_done(planner_id, done=not row_done)
+                        st.toast("Updated.")
                         st.query_params["page"] = "Weekly Planner"
                         st.rerun()
 
-    # (legacy packets block removed – packets logic lives above)
+        elif task_list_choice == "— Packet items —":
+            search_lower = (task_search or "").strip().lower()
+            packet_sorted = sorted(packet_by_key.items(), key=lambda x: (x[0][0], x[0][1]))
+            if search_lower:
+                packet_sorted = [
+                    (k, v) for k, v in packet_sorted
+                    if search_lower in (packet_id_to_name.get(k[0], "") + " " + k[1]).lower()
+                ]
+            for (p_id, item_title), entries in packet_sorted:
+                pkt_name = packet_id_to_name.get(p_id, f"Packet {p_id}")
+                day_planner = [(d_str, task["id"]) for d_str, task in entries]
+                first_planner_id = entries[0][1]["id"]
+                first_task = entries[0][1]
+                done_status = "✅" if first_task.get("done") else "⬜"
+                with st.expander(f"{done_status} {pkt_name}: {item_title}", expanded=False):
+                    day_options = {d_str: pid for d_str, pid in sorted(day_planner)}
+                    time_day = st.selectbox(
+                        "Day (for remove or mark done)",
+                        options=list(day_options.keys()),
+                        key=f"pkt_time_day_{first_planner_id}",
+                        format_func=lambda x: datetime.datetime.strptime(x, "%Y-%m-%d").strftime("%a %d %b"),
+                    )
+                    planner_id = day_options[time_day]
+                    st.caption("Set scheduled time for this item in **Create / edit packets** (applies to entire week).")
+                    if st.button("Remove from selected day only", key=f"pkt_remove_day_{planner_id}"):
+                        db.delete_planner_task(planner_id)
+                        st.toast("Removed from that day only.")
+                        st.query_params["page"] = "Weekly Planner"
+                        st.rerun()
+                    row_done = next((t["done"] for d_str, t in entries if t["id"] == planner_id), False)
+                    if st.button("Mark done" if not row_done else "Mark undone", key=f"pkt_done_{planner_id}"):
+                        db.toggle_planner_task_done(planner_id, done=not row_done)
+                        st.toast("Updated.")
+                        st.query_params["page"] = "Weekly Planner"
+                        st.rerun()
+
+        else:
+            # Hobby selected
+            task_hobby_id = hobby_dict[task_list_choice]
+            db.ensure_recurring_tasks_for_today(task_hobby_id)
+            tasks = db.get_tasks(task_hobby_id)
+            search_lower = (task_search or "").strip().lower()
+            done_tasks = [t for t in tasks if t[3]]
+            recent_done_ids = {t[0] for t in sorted(done_tasks, key=lambda x: x[0], reverse=True)[:10]}
+            tasks_sorted = sorted(tasks, key=lambda x: x[0], reverse=True)
+            if search_lower:
+                tasks_sorted = [t for t in tasks_sorted if search_lower in (t[2] or "").lower()]
+            for t in tasks_sorted:
+                t_id = t[0]
+                is_done = bool(t[3])
+                if is_done and t_id not in recent_done_ids:
+                    continue
+                subtasks = db.get_subtasks(t_id)
+                total_minutes = sum(stsk[4] for stsk in subtasks) if subtasks else t[4]
+                done_status = "✅" if is_done else "⬜"
+                with st.expander(f"{done_status} {t[2]} • {total_minutes} min", expanded=False):
+                    # Edit task name (hobby tasks only; packet tasks are edited via packet edit)
+                    edited_task_name = st.text_input(
+                        "Task name",
+                        value=t[2],
+                        key=f"task_edit_name_{t_id}",
+                        label_visibility="collapsed",
+                        placeholder="Task name",
+                    )
+                    if st.button("Update task name", key=f"task_update_name_btn_{t_id}"):
+                        if edited_task_name.strip():
+                            db.update_task_name(t_id, edited_task_name.strip())
+                            st.toast("Task name updated (glance updated too).")
+                            st.query_params["page"] = "Weekly Planner"
+                            st.rerun()
+                        else:
+                            st.warning("Task name cannot be empty.")
+                    if not is_done:
+                        all_subtasks_done = (not subtasks) or all(bool(stsk[3]) for stsk in subtasks)
+                        if subtasks and not all_subtasks_done:
+                            st.caption("Complete all subtasks below to mark this task done.")
+                        actual_mins = st.number_input("Actual minutes (for log)", min_value=0, max_value=600, value=total_minutes, key=f"task_actual_min_{t_id}")
+                        if (not subtasks or all_subtasks_done) and st.button(f"Mark Task '{t[2]}' Done", key=f"task_done_{t_id}"):
+                            db.mark_task_done(t_id, is_subtask=False, actual_minutes_override=actual_mins)
+                            st.toast("Task marked done and activity logged!", icon="✅")
+                            st.query_params["page"] = "Weekly Planner"
+                            st.rerun()
+                    else:
+                        if st.button(f"Mark '{t[2]}' Undone", key=f"task_undone_{t_id}"):
+                            db.mark_task_undone(t_id)
+                            st.success("Task marked undone (also in weekly glance).")
+                            st.query_params["page"] = "Weekly Planner"
+                            st.rerun()
+                    if st.button("Remove from week", key=f"task_remove_week_{t_id}"):
+                        db.delete_task(t_id)
+                        st.success("Task removed from week and from list.")
+                        st.query_params["page"] = "Weekly Planner"
+                        st.rerun()
+                    planner_entries = [
+                        (d_str, task["id"])
+                        for d_str, rows in tasks_by_date.items()
+                        for task in rows
+                        if task.get("task_id") == t_id
+                    ]
+                    if planner_entries:
+                        day_options_any = {d_str: pid for d_str, pid in sorted(planner_entries)}
+                        time_day = st.selectbox(
+                            "Day (for time or remove)",
+                            options=list(day_options_any.keys()),
+                            key=f"task_time_day_{t_id}",
+                            format_func=lambda x: datetime.datetime.strptime(x, "%Y-%m-%d").strftime("%a %d %b"),
+                        )
+                        planner_id_for_time = day_options_any[time_day]
+                        current_time_str = next(
+                            (task.get("scheduled_time") for task in tasks_by_date.get(time_day, []) if task["id"] == planner_id_for_time),
+                            None,
+                        )
+                        if current_time_str and len(current_time_str) >= 5:
+                            try:
+                                h, m = int(current_time_str[:2]), int(current_time_str[3:5])
+                                default_time = datetime.time(h, m)
+                            except (ValueError, IndexError):
+                                default_time = datetime.time(9, 0)
+                        else:
+                            default_time = datetime.time(9, 0)
+                        new_time = st.time_input("Scheduled time (order in glance)", value=default_time, key=f"task_scheduled_time_{t_id}")
+                        if st.button("Set scheduled time", key=f"task_set_time_btn_{t_id}"):
+                            db.update_planner_task_scheduled_time(planner_id_for_time, new_time.strftime("%H:%M"))
+                            st.toast("Scheduled time updated.")
+                            st.query_params["page"] = "Weekly Planner"
+                            st.rerun()
+                    if len(planner_entries) > 1 and planner_entries:
+                        if st.button("Remove from selected day only", key=f"task_remove_day_btn_{t_id}"):
+                            db.delete_planner_task(planner_id_for_time)
+                            st.toast("Removed from that day only.")
+                            st.query_params["page"] = "Weekly Planner"
+                            st.rerun()
+                    for stsk in subtasks:
+                        st_done = "✅" if stsk[3] else "⬜"
+                        cols = st.columns([3, 1, 1])
+                        cols[0].write(f"{st_done} {stsk[2]} ({stsk[4]} min)")
+                        if not stsk[3] and cols[1].button("Done", key=f"subtask_done_{stsk[0]}"):
+                            db.mark_task_done(stsk[0], is_subtask=True)
+                            st.success("Subtask marked done and activity logged!")
+                            st.query_params["page"] = "Weekly Planner"
+                            st.rerun()
+                        if stsk[3] and cols[1].button("Undone", key=f"subtask_undone_{stsk[0]}"):
+                            db.mark_subtask_undone(stsk[0])
+                            st.success("Subtask marked undone.")
+                            st.query_params["page"] = "Weekly Planner"
+                            st.rerun()
+                        if cols[2].button("Remove", key=f"subtask_remove_{stsk[0]}"):
+                            db.delete_subtask(stsk[0])
+                            st.success("Subtask removed.")
+                            st.query_params["page"] = "Weekly Planner"
+                            st.rerun()
+                    if not is_done:
+                        new_sub_name = st.text_input("New subtask name", key=f"newsub_{t_id}")
+                        new_sub_min = st.number_input("Minutes", min_value=0, max_value=1000, value=0, key=f"sub_min_{t_id}")
+                        if st.button("Add Subtask", key=f"addsub_{t_id}") and new_sub_name.strip():
+                            db.add_subtask(t_id, new_sub_name.strip(), new_sub_min, 0)
+                            st.success("Subtask added!")
+                            st.query_params["page"] = "Weekly Planner"
+                            st.rerun()
