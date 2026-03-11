@@ -32,6 +32,39 @@ st.markdown(
         background-color: transparent !important;
     }
 
+    /* Sidebar: orange / warm theme to match the app */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #fef3c7 0%, #fde7c7 35%, #fed7aa 70%, #fef3c7 100%) !important;
+        border-right: 2px solid rgba(124, 45, 18, 0.35) !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stSidebarContent"] {
+        background: transparent !important;
+    }
+    [data-testid="stSidebar"] .stRadio label {
+        font-family: 'Caveat', 'Nunito', system-ui, sans-serif !important;
+        color: #7c2d12 !important;
+    }
+    [data-testid="stSidebar"] [role="radiogroup"] label {
+        background: rgba(255, 255, 255, 0.4) !important;
+        border-radius: 0.5rem !important;
+        padding: 0.5rem 0.75rem !important;
+        border: 1px solid rgba(124, 45, 18, 0.2) !important;
+    }
+    [data-testid="stSidebar"] [role="radiogroup"] label:hover {
+        background: rgba(254, 215, 170, 0.7) !important;
+        border-color: rgba(124, 45, 18, 0.4) !important;
+    }
+    [data-testid="stSidebar"] [role="radiogroup"] label:has(input[type="radio"]:checked) {
+        background: linear-gradient(135deg, #fde7c7, #fed7aa) !important;
+        border-color: #b45309 !important;
+        color: #7c2d12 !important;
+        font-weight: 600 !important;
+    }
+    [data-testid="stSidebar"] p {
+        color: #7c2d12 !important;
+        font-family: 'Caveat', 'Nunito', system-ui, sans-serif !important;
+    }
+
     /* Global headers use handwritten font (override Streamlit defaults) */
     h1, h2, h3,
     .block-container h1,
@@ -133,6 +166,11 @@ st.markdown(
         font-weight: 600;
         font-family: 'Caveat', cursive, system-ui, sans-serif !important;
         font-size: 1.2rem !important;
+    }
+    /* Packet tasks: pin icon tinted amber/orange to distinguish from regular task pin */
+    .task-tree-task .pin-packet {
+        display: inline;
+        filter: sepia(1) saturate(3) hue-rotate(15deg);
     }
     .task-tree-sub-active {
         color: #1f2933;
@@ -255,6 +293,95 @@ st.markdown(
         width: 0;
         margin: 0;
     }
+
+    /* Marker for week-at-a-glance row only (invisible, no layout space) */
+    .glance-days-marker { display: block !important; height: 0 !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; }
+
+    /* ---------- Mobile layout (phone): responsive adjustments for viewport <= 768px ---------- */
+    @media (max-width: 768px) {
+        .stApp { padding-left: 0.5rem !important; padding-right: 0.5rem !important; }
+        [data-testid="stAppViewContainer"] > section { padding-left: 0.75rem !important; padding-right: 0.75rem !important; max-width: 100% !important; }
+        [data-testid="block-container"] { max-width: 100% !important; padding: 0.5rem 0.25rem !important; }
+
+        /* Hero: stack title and image, smaller title */
+        .hobby-title { font-size: 2rem !important; line-height: 1.2 !important; }
+        .hobby-subtitle-main { font-size: 1.1rem !important; margin-bottom: 0.75rem !important; }
+        [data-testid="column"] img { max-width: 140px !important; height: auto !important; }
+
+        /* Section titles a bit smaller */
+        .section-title { font-size: 1.35rem !important; }
+        .stats-title { font-size: 1.5rem !important; }
+
+        /* Sidebar: ensure nav is tappable (Streamlit collapses to overlay on mobile) */
+        [data-testid="stSidebar"] { min-width: 260px !important; }
+        [data-testid="stSidebar"] [role="radiogroup"] label { min-height: 2.75rem !important; padding: 0.5rem 0.75rem !important; font-size: 1rem !important; }
+
+        /* Week-at-a-glance: horizontal scroll so 7 days stay in one row (desktop narrow / tablet) */
+        [data-testid="stHorizontalBlock"]:has(> [data-testid="column"]:nth-child(7)) {
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch;
+            margin-left: -0.5rem !important;
+            margin-right: -0.5rem !important;
+            padding: 0.25rem 0.5rem !important;
+            scrollbar-width: thin;
+            display: flex !important;
+            flex-wrap: nowrap !important;
+        }
+        [data-testid="stHorizontalBlock"]:has(> [data-testid="column"]:nth-child(7)) [data-testid="column"] {
+            min-width: 100px !important;
+            flex: 0 0 auto !important;
+        }
+        [data-testid="stHorizontalBlock"]:has(> [data-testid="column"]:nth-child(7)) .section-title { font-size: 0.95rem !important; white-space: nowrap; }
+
+        /* Android / touch: only the week row is slidable (marker + next sibling; no :has() needed) */
+        @media (max-width: 768px) and (pointer: coarse) {
+            .glance-days-marker + [data-testid="stHorizontalBlock"] {
+                display: flex !important;
+                flex-wrap: nowrap !important;
+                overflow-x: auto !important;
+                -webkit-overflow-scrolling: touch !important;
+                scrollbar-width: thin;
+                margin-left: -0.5rem !important;
+                margin-right: -0.5rem !important;
+                padding: 0.25rem 0.5rem !important;
+            }
+            .glance-days-marker + [data-testid="stHorizontalBlock"] [data-testid="column"] {
+                flex: 0 0 auto !important;
+                min-width: 92px !important;
+            }
+            .glance-days-marker + [data-testid="stHorizontalBlock"] .section-title { font-size: 0.95rem !important; white-space: nowrap !important; }
+        }
+
+        /* Task rows in glance: larger tap targets */
+        div.stCheckbox { min-height: 2.25rem !important; }
+        div.stCheckbox label { font-size: 1.05rem !important; }
+        .task-tree-task { font-size: 1.05rem !important; }
+        .planner-glance-sub { font-size: 0.98rem !important; }
+
+        /* Buttons and inputs: larger touch targets, prevent iOS zoom on focus */
+        [data-testid="stHorizontalBlock"] button { min-height: 2.5rem !important; padding: 0.4rem 0.75rem !important; }
+        [data-testid="stVerticalBlock"] > div input[type="text"],
+        [data-testid="stVerticalBlock"] > div input[type="number"] { min-height: 2.5rem !important; font-size: 16px !important; }
+        select, input, textarea { font-size: 16px !important; }
+
+        /* Hobby pills: stack or wrap nicely */
+        .hobby-pill { display: inline-block !important; margin: 0.25rem !important; padding: 0.5rem 0.85rem !important; font-size: 1.1rem !important; }
+
+        /* Very small: stack 2-column layouts (hero, hobby pills); leave 7-day glance as horizontal scroll */
+        @media (max-width: 480px) {
+            [data-testid="stHorizontalBlock"]:not(:has(> [data-testid="column"]:nth-child(7))) [data-testid="column"] {
+                min-width: 100% !important;
+                flex: 1 1 100% !important;
+            }
+        }
+
+        /* Charts: use full width */
+        [data-testid="stVerticalBlock"] iframe { max-width: 100% !important; }
+        .js-plotly-plot, .vega-embed { max-width: 100% !important; }
+
+        /* Expanders: easier tap */
+        .streamlit-expanderHeader { min-height: 2.75rem !important; padding: 0.5rem 0 !important; }
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -362,7 +489,7 @@ elif page == "Statistics":
                     x=alt.X("hobby:N", title="Hobby", sort="-y"),
                     y=alt.Y("count:Q", title="Count"),
                     xOffset="series:N",
-                    color=alt.Color("series:N", title="", scale=alt.Scale(range=["#7c3aed", "#0ea5e9"])),
+                    color=alt.Color("series:N", title="", scale=alt.Scale(range=["#7c2d12", "#b45309"])),
                 )
             )
         except (AttributeError, TypeError):
@@ -372,7 +499,7 @@ elif page == "Statistics":
                 .encode(
                     x=alt.X("hobby:N", title="Hobby", sort="-y"),
                     y=alt.Y("count:Q", title="Count"),
-                    color=alt.Color("series:N", title="", scale=alt.Scale(range=["#7c3aed", "#0ea5e9"])),
+                    color=alt.Color("series:N", title="", scale=alt.Scale(range=["#7c2d12", "#b45309"])),
                     column=alt.Column("series:N", header=alt.Header(title="")),
                 )
             )
@@ -433,7 +560,7 @@ elif page == "Statistics":
                         x=alt.X("hobby:N", title="Hobby", sort="-y"),
                         y=alt.Y("minutes:Q", title="Minutes"),
                         xOffset="series:N",
-                        color=alt.Color("series:N", title="", scale=alt.Scale(range=["#0d9488", "#ea580c"])),
+                        color=alt.Color("series:N", title="", scale=alt.Scale(range=["#0d9488", "#c2410c"])),
                     )
                 )
             except (AttributeError, TypeError):
@@ -443,7 +570,7 @@ elif page == "Statistics":
                     .encode(
                         x=alt.X("hobby:N", title="Hobby", sort="-y"),
                         y=alt.Y("minutes:Q", title="Minutes"),
-                        color=alt.Color("series:N", title="", scale=alt.Scale(range=["#0d9488", "#ea580c"])),
+                        color=alt.Color("series:N", title="", scale=alt.Scale(range=["#0d9488", "#c2410c"])),
                         column=alt.Column("series:N", header=alt.Header(title="")),
                     )
                 )
@@ -492,7 +619,7 @@ elif page == "Statistics":
                 color=alt.Color(
                     "label:N",
                     title="",
-                    scale=alt.Scale(domain=["All done", "Not all done"], range=["#15803d", "#fef3c7"]),
+                    scale=alt.Scale(domain=["All done", "Not all done"], range=["#15803d", "#d97706"]),
                 ),
                 tooltip=["day", "packet", "label"],
             )
@@ -540,8 +667,9 @@ elif page == "Weekly Planner":
             }
         )
 
-    # This Week at a Glance (first)
+    # This Week at a Glance (first) – marker so only this row is slidable on mobile
     st.subheader("This Week at a Glance")
+    st.markdown('<div class="glance-days-marker" aria-hidden="true"></div>', unsafe_allow_html=True)
     cols = st.columns(7)
 
     for i, d in enumerate(week_days):
@@ -574,20 +702,43 @@ elif page == "Weekly Planner":
                         key=f"planner_task_{t['id']}_{t['done']}",
                     )
                 with row_cols[1]:
+                    pin_icon = (
+                        '<span class="pin-packet">📌</span>'
+                        if t.get("packet_id")
+                        else "📌"
+                    )
                     st.markdown(
-                        f'<div class="task-tree-item task-tree-task{done_class}">📌 {label}</div>',
+                        f'<div class="task-tree-item task-tree-task{done_class}">{pin_icon} {label}</div>',
                         unsafe_allow_html=True,
                     )
 
                 if checked != t["done"]:
-                    actual_minutes = t["minutes"] or 0
-                    db.update_planner_task_minutes(t["id"], actual_minutes)
-                    if same_task_in_week > 1:
-                        db.set_planner_row_done_only(t["id"], done=checked, minutes_override=actual_minutes)
+                    # Task can be marked done only when all subtasks are done
+                    if checked and t.get("task_id"):
+                        subtasks_check = db.get_subtasks(t["task_id"])
+                        if subtasks_check and not all(bool(stsk[3]) for stsk in subtasks_check):
+                            st.warning("Complete all subtasks first.")
+                            st.rerun()
+                        else:
+                            actual_minutes = t["minutes"] or 0
+                            db.update_planner_task_minutes(t["id"], actual_minutes)
+                            if same_task_in_week > 1:
+                                db.set_planner_row_done_only(t["id"], done=checked, minutes_override=actual_minutes)
+                            else:
+                                db.toggle_planner_task_done(t["id"], done=checked, minutes_override=actual_minutes)
+                            st.toast("Task updated", icon="✅")
+                            st.query_params["page"] = "Weekly Planner"
+                            st.rerun()
                     else:
-                        db.toggle_planner_task_done(t["id"], done=checked, minutes_override=actual_minutes)
-                    st.query_params["page"] = "Weekly Planner"
-                    st.rerun()
+                        actual_minutes = t["minutes"] or 0
+                        db.update_planner_task_minutes(t["id"], actual_minutes)
+                        if same_task_in_week > 1:
+                            db.set_planner_row_done_only(t["id"], done=checked, minutes_override=actual_minutes)
+                        else:
+                            db.toggle_planner_task_done(t["id"], done=checked, minutes_override=actual_minutes)
+                        st.toast("Task updated", icon="✅")
+                        st.query_params["page"] = "Weekly Planner"
+                        st.rerun()
 
                 if t.get("task_id"):
                     subtasks = db.get_subtasks(t["task_id"])
@@ -625,8 +776,6 @@ elif page == "Weekly Planner":
     hobbies = db.get_hobbies()
     st.subheader("Add a Task to This Week")
     with st.expander("Plan a new weekly task", expanded=False):
-        if not hobbies:
-            st.warning("Please add at least one hobby first (Add Hobby page).")
         col_day, col_title = st.columns([1, 2])
         with col_day:
             day_for_task = st.date_input(
@@ -648,23 +797,50 @@ elif page == "Weekly Planner":
             index=0,
             key="planner_add_frequency",
         )
-        if hobbies:
-            hobby_dict = {name: id for id, name in hobbies}
-            hobby_for_task = st.selectbox(
-                "Linked hobby",
-                options=list(hobby_dict.keys()),
-                key="planner_add_hobby",
-            )
-        else:
-            hobby_dict = {}
-            hobby_for_task = None
+        hobby_dict = {name: id for id, name in hobbies} if hobbies else {}
+        hobby_options = ["— General (no hobby) —"] + list(hobby_dict.keys())
+        hobby_for_task = st.selectbox(
+            "Linked hobby",
+            options=hobby_options,
+            key="planner_add_hobby",
+        )
+        is_general_task = hobby_for_task == "— General (no hobby) —"
         if st.button("Add Weekly Task", key="planner_add_btn"):
-            if not hobbies:
-                st.warning("Cannot add planner tasks until you have at least one hobby.")
-            elif not title_for_task.strip():
+            if not title_for_task.strip():
                 st.warning("Please provide a task title.")
-            elif not hobby_for_task:
-                st.warning("Please choose a hobby for this task.")
+            elif is_general_task:
+                # General task: planner row(s) only, no hobby, no task link (no time logging when done)
+                freq_value = frequency.lower()
+                if freq_value == "daily":
+                    for d in week_days:
+                        db.add_planner_task(
+                            d.isoformat(),
+                            title_for_task.strip(),
+                            notes_for_task.strip(),
+                            freq_value,
+                            None,
+                            est_minutes,
+                            None,
+                            0,
+                            None,
+                        )
+                else:
+                    db.add_planner_task(
+                        day_for_task.isoformat(),
+                        title_for_task.strip(),
+                        notes_for_task.strip(),
+                        freq_value,
+                        None,
+                        est_minutes,
+                        None,
+                        0,
+                        None,
+                    )
+                st.toast("General task added to week.", icon="✅")
+                st.query_params["page"] = "Weekly Planner"
+                st.rerun()
+            elif hobby_for_task not in hobby_dict:
+                st.warning("Please choose a hobby or General (no hobby).")
             else:
                 freq_value = frequency.lower()
                 if freq_value == "daily":
@@ -704,7 +880,7 @@ elif page == "Weekly Planner":
                         0,
                         task_id,
                     )
-                st.success("Task added to weekly planner!")
+                st.toast("Task added to weekly planner!", icon="✅")
                 st.query_params["page"] = "Weekly Planner"
                 st.rerun()
 
@@ -723,14 +899,37 @@ elif page == "Weekly Planner":
             pkt_names = {name: pid for pid, name in packets}
             edit_name = st.selectbox("Edit packet", options=list(pkt_names.keys()), key="planner_edit_packet")
             edit_pid = pkt_names[edit_name]
-            st.caption("Existing items:")
+            st.caption("Existing items (edit title and Update, or Remove):")
             items = db.get_planner_packet_items(edit_pid)
-            for _, title in items:
-                st.markdown(f"- {title}")
+            for item_id, title in items:
+                col_label, col_update, col_remove = st.columns([2, 0.6, 0.6])
+                with col_label:
+                    edited_title = st.text_input(
+                        "Item title",
+                        value=title,
+                        key=f"packet_item_edit_{item_id}",
+                        label_visibility="collapsed",
+                        placeholder="Item title",
+                    )
+                with col_update:
+                    if st.button("Update", key=f"packet_item_update_{item_id}"):
+                        if edited_title.strip():
+                            db.update_planner_packet_item(item_id, edited_title.strip())
+                            st.toast("Item updated.")
+                            st.query_params["page"] = "Weekly Planner"
+                            st.rerun()
+                        else:
+                            st.warning("Title cannot be empty.")
+                with col_remove:
+                    if st.button("Remove", key=f"packet_item_remove_{item_id}"):
+                        db.delete_planner_packet_item(item_id)
+                        st.toast("Item removed.")
+                        st.query_params["page"] = "Weekly Planner"
+                        st.rerun()
             new_item_title = st.text_input("New item title", key="planner_new_packet_item")
             if st.button("Add item to packet", key="planner_add_packet_item_btn") and new_item_title.strip():
                 db.add_planner_packet_item(edit_pid, new_item_title.strip())
-                st.success("Item added to packet.")
+                st.toast("Item added to packet.", icon="✅")
                 st.query_params["page"] = "Weekly Planner"
                 st.rerun()
         else:
@@ -842,10 +1041,13 @@ elif page == "Weekly Planner":
             done_status = "✅" if is_done else "⬜"
             with st.expander(f"{done_status} {t[2]} • {total_minutes} min", expanded=False):
                 if not is_done:
+                    all_subtasks_done = (not subtasks) or all(bool(stsk[3]) for stsk in subtasks)
+                    if subtasks and not all_subtasks_done:
+                        st.caption("Complete all subtasks below to mark this task done.")
                     actual_mins = st.number_input("Actual minutes (for log)", min_value=0, max_value=600, value=total_minutes, key=f"task_actual_min_{t_id}")
-                    if st.button(f"Mark Task '{t[2]}' Done", key=f"task_done_{t_id}"):
+                    if (not subtasks or all_subtasks_done) and st.button(f"Mark Task '{t[2]}' Done", key=f"task_done_{t_id}"):
                         db.mark_task_done(t_id, is_subtask=False, actual_minutes_override=actual_mins)
-                        st.success("Task marked done and activity logged!")
+                        st.toast("Task marked done and activity logged!", icon="✅")
                         st.query_params["page"] = "Weekly Planner"
                         st.rerun()
                 else:

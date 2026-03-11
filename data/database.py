@@ -523,6 +523,17 @@ def toggle_planner_task_done(task_id, done=True, minutes_override=None):
         mark_task_undone(linked_task_id)
         return
 
+    # When marking done and row is linked to a task, require all subtasks done (check before updating planner row)
+    if (not was_done) and done and linked_task_id is not None:
+        cursor.execute(
+            "SELECT COUNT(*), SUM(CASE WHEN done = 0 THEN 1 ELSE 0 END) FROM subtasks WHERE task_id = ?",
+            (linked_task_id,),
+        )
+        sub_count, undone_count = cursor.fetchone()
+        if (sub_count or 0) > 0 and (undone_count or 0) > 0:
+            conn.close()
+            return  # do not update planner row or task
+
     cursor.execute(
         "UPDATE planner_tasks SET done = ? WHERE id = ?",
         (1 if done else 0, task_id),
@@ -645,6 +656,41 @@ def add_planner_packet_item(packet_id: int, title: str):
         "INSERT INTO planner_packet_items (packet_id, title) VALUES (?, ?)",
         (packet_id, title),
     )
+    conn.commit()
+    conn.close()
+
+
+def update_planner_packet_item(item_id: int, new_title: str):
+    """Update a packet item's title and sync planner_tasks that were created from this item."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT packet_id, title FROM planner_packet_items WHERE id = ?", (item_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return
+    packet_id, old_title = row
+    cursor.execute("UPDATE planner_packet_items SET title = ? WHERE id = ?", (new_title.strip(), item_id))
+    cursor.execute(
+        "UPDATE planner_tasks SET title = ? WHERE packet_id = ? AND title = ?",
+        (new_title.strip(), packet_id, old_title),
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_planner_packet_item(item_id: int):
+    """Remove a packet item and any planner_tasks in the week that were created from it (same packet_id and title)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT packet_id, title FROM planner_packet_items WHERE id = ?", (item_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return
+    packet_id, title = row
+    cursor.execute("DELETE FROM planner_tasks WHERE packet_id = ? AND title = ?", (packet_id, title))
+    cursor.execute("DELETE FROM planner_packet_items WHERE id = ?", (item_id,))
     conn.commit()
     conn.close()
 
@@ -780,21 +826,46 @@ def mark_task_done(task_id, is_subtask=False, actual_minutes_override=None):
             conn.close()
             return
 
-        # If task has subtasks, sum minutes/points ONLY for subtasks
-        # that are not yet marked done, to avoid double-counting.
+        # Refuse to mark task done if it has subtasks and not all are done (enforced in DB so all paths obey)
+        cursor.execute(
+            "SELECT COUNT(*), SUM(CASE WHEN done = 0 THEN 1 ELSE 0 END) FROM subtasks WHERE task_id = ?",
+            (task_id,),
+        )
+        sub_count, undone_count = cursor.fetchone()
+        has_subtasks = (sub_count or 0) > 0
+        if has_subtasks and (undone_count or 0) > 0:
+            conn.close()
+            return
+
+        # If task has subtasks, sum minutes/points ONLY for subtasks not yet done (avoid double-counting).
+        # When all subtasks are already done, do NOT log again – their time was already logged per subtask.
         cursor.execute(
             "SELECT SUM(minutes), SUM(points) FROM subtasks WHERE task_id = ? AND done = 0",
             (task_id,),
         )
         sums = cursor.fetchone()
-        minutes_to_log = int(actual_minutes_override) if actual_minutes_override is not None else (sums[0] if sums[0] else task[1])
-        points_to_log = sums[1] if sums[1] else task[2]
+        all_subtasks_done = has_subtasks and (sums[0] is None or sums[0] == 0)
+
+        if all_subtasks_done:
+            # Time already logged per subtask; do not add again
+            minutes_to_log = 0
+            points_to_log = 0
+        elif actual_minutes_override is not None:
+            minutes_to_log = int(actual_minutes_override)
+            points_to_log = task[2]
+        elif has_subtasks:
+            minutes_to_log = int(sums[0]) if sums[0] else 0
+            points_to_log = int(sums[1]) if sums[1] else 0
+        else:
+            minutes_to_log = task[1]
+            points_to_log = task[2]
 
         cursor.execute("UPDATE tasks SET done = 1 WHERE id = ?", (task_id,))
-        cursor.execute("""
-            INSERT INTO entries (hobby_id, date, minutes, notes, points)
-            VALUES (?, ?, ?, ?, ?)
-        """, (task[0], str(date.today()), minutes_to_log, f"Task: {task[3]}", points_to_log))
+        if minutes_to_log > 0 or points_to_log > 0:
+            cursor.execute("""
+                INSERT INTO entries (hobby_id, date, minutes, notes, points)
+                VALUES (?, ?, ?, ?, ?)
+            """, (task[0], str(date.today()), minutes_to_log, f"Task: {task[3]}", points_to_log))
 
     conn.commit()
     conn.close()
