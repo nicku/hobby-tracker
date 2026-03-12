@@ -421,7 +421,7 @@ with hero_right:
 # -------------------
 
 # Persist current page in URL so refresh returns to same page
-nav_options = ["Add Hobby", "Statistics", "Weekly Planner"]
+nav_options = ["Add Hobby", "Statistics", "Weekly Planner", "General Tasks"]
 current_page = st.query_params.get("page", nav_options[0])
 if current_page not in nav_options:
     current_page = nav_options[0]
@@ -1380,3 +1380,88 @@ elif page == "Weekly Planner":
                             st.success("Subtask added!")
                             st.query_params["page"] = "Weekly Planner"
                             st.rerun()
+
+# -------------------
+# General Tasks Page (standalone list, no day/time, same look as glance)
+# -------------------
+elif page == "General Tasks":
+    if not hasattr(db, "get_general_tasks"):
+        st.error("Database module needs a restart. Stop Streamlit (Ctrl+C) and run it again so the General Tasks feature loads.")
+    else:
+        st.subheader("General Tasks")
+        st.caption("Tasks with no date or time — just a list you can mark done. Add to glance to schedule a day (and optional time) and move it to the Weekly Planner.")
+        new_title = st.text_input("New task", placeholder="Add a task…", key="general_new_task")
+        if st.button("Add task", key="general_add_btn") and new_title.strip():
+            db.add_general_task(new_title.strip())
+            st.toast("Task added.")
+            st.query_params["page"] = "General Tasks"
+            st.rerun()
+
+        all_tasks = db.get_general_tasks()
+        undone = [t for t in all_tasks if not t[2]]
+        done_list = [t for t in all_tasks if t[2]]
+        recent_done = sorted(done_list, key=lambda x: x[0], reverse=True)[:10]
+        tasks = undone + recent_done
+
+        if not tasks:
+            st.info("No general tasks yet. Add one above.")
+        else:
+            if len(done_list) > 10:
+                st.caption(f"Showing all {len(undone)} to-do and the last 10 completed (of {len(done_list)}).")
+            today = date.today()
+            week_start = today - datetime.timedelta(days=(today.weekday() + 1) % 7)
+            week_end = week_start + datetime.timedelta(days=6)
+            week_days = [week_start + datetime.timedelta(days=i) for i in range(7)]
+
+            for (tid, title, done) in tasks:
+                done_class = " glance-task-done" if done else ""
+                row_cols = st.columns([0.4, 5.2, 0.6])
+                with row_cols[0]:
+                    checked = st.checkbox("", value=bool(done), key=f"general_cb_{tid}_{done}", label_visibility="collapsed")
+                with row_cols[1]:
+                    st.markdown(
+                        f'<div class="task-tree-item task-tree-task{done_class}">📌 {title}</div>',
+                        unsafe_allow_html=True,
+                    )
+                with row_cols[2]:
+                    if st.button("Remove", key=f"general_remove_{tid}"):
+                        db.delete_general_task(tid)
+                        st.toast("Task removed.")
+                        st.query_params["page"] = "General Tasks"
+                        st.rerun()
+
+                with st.expander("Add to glance (schedule a day, then move to Weekly Planner)", expanded=False):
+                    schedule_day = st.selectbox(
+                        "Day this week",
+                        options=week_days,
+                        key=f"general_glance_day_{tid}",
+                        format_func=lambda d: d.strftime("%a %d %b"),
+                    )
+                    set_time = st.checkbox("Set scheduled time", key=f"general_glance_set_time_{tid}")
+                    scheduled_time = None
+                    if set_time:
+                        t_val = st.time_input("Time", value=datetime.time(9, 0), key=f"general_glance_time_{tid}", label_visibility="collapsed")
+                        scheduled_time = t_val.strftime("%H:%M")
+                    if st.button("Add to glance", key=f"general_glance_confirm_{tid}"):
+                        db.add_planner_task(
+                            schedule_day.isoformat(),
+                            title,
+                            "",
+                            "once",
+                            packet_id=None,
+                            minutes=0,
+                            hobby_id=None,
+                            points=0,
+                            task_id=None,
+                            scheduled_time=scheduled_time,
+                        )
+                        db.delete_general_task(tid)
+                        st.toast("Task added to weekly glance. Edit it under Weekly Planner → Existing Tasks → General (no hobby).")
+                        st.query_params["page"] = "General Tasks"
+                        st.rerun()
+
+                if checked != bool(done):
+                    db.set_general_task_done(tid, checked)
+                    st.toast("Updated.")
+                    st.query_params["page"] = "General Tasks"
+                    st.rerun()

@@ -135,6 +135,17 @@ def init_db():
     if "scheduled_time" not in cols:
         cursor.execute("ALTER TABLE planner_tasks ADD COLUMN scheduled_time TEXT")
 
+    # ----------------------
+    # General tasks (no day, no time – standalone list for General Tasks page)
+    # ----------------------
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS general_tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        done INTEGER DEFAULT 0
+    )
+    """)
+
     # Seed a default "Self care" packet if it doesn't exist yet
     cursor.execute("SELECT id FROM planner_packets WHERE name = ?", ("Self care",))
     row = cursor.fetchone()
@@ -726,6 +737,48 @@ def delete_planner_packet_item(item_id: int):
     packet_id, title = row
     cursor.execute("DELETE FROM planner_tasks WHERE packet_id = ? AND title = ?", (packet_id, title))
     cursor.execute("DELETE FROM planner_packet_items WHERE id = ?", (item_id,))
+    conn.commit()
+    conn.close()
+
+
+# ----------------------
+# General tasks (standalone list, no day/time)
+# ----------------------
+def get_general_tasks():
+    """Return all general tasks as (id, title, done)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, title, done FROM general_tasks ORDER BY id")
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+
+def add_general_task(title: str) -> int:
+    """Add a general task; return its id."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO general_tasks (title, done) VALUES (?, 0)", (title.strip(),))
+    rid = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return rid
+
+
+def set_general_task_done(task_id: int, done: bool):
+    """Mark a general task done or undone."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE general_tasks SET done = ? WHERE id = ?", (1 if done else 0, task_id))
+    conn.commit()
+    conn.close()
+
+
+def delete_general_task(task_id: int):
+    """Remove a general task."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM general_tasks WHERE id = ?", (task_id,))
     conn.commit()
     conn.close()
 
