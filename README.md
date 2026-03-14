@@ -4,6 +4,7 @@ This is a small Streamlit web app for tracking hobbies, tasks, and time spent, w
 
 ### Features
 
+
 - **Hobbies**
   - Add new hobbies (duplicates are prevented).
   - See your existing hobbies as colorful “pills”.
