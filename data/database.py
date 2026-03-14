@@ -135,6 +135,14 @@ def init_db():
     if "scheduled_time" not in cols:
         cursor.execute("ALTER TABLE planner_tasks ADD COLUMN scheduled_time TEXT")
 
+    # Link entries to source so we can remove them when marking task/planner undone
+    cursor.execute("PRAGMA table_info(entries)")
+    entry_cols = [row[1] for row in cursor.fetchall()]
+    if "source_type" not in entry_cols:
+        cursor.execute("ALTER TABLE entries ADD COLUMN source_type TEXT")
+    if "source_id" not in entry_cols:
+        cursor.execute("ALTER TABLE entries ADD COLUMN source_id INTEGER")
+
     # ----------------------
     # General tasks (no day, no time – standalone list for General Tasks page)
     # ----------------------
@@ -597,8 +605,8 @@ def toggle_planner_task_done(task_id, done=True, minutes_override=None):
         elif hobby_id is not None:
             cursor.execute(
                 """
-                INSERT INTO entries (hobby_id, date, minutes, notes, points)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO entries (hobby_id, date, minutes, notes, points, source_type, source_id)
+                VALUES (?, ?, ?, ?, ?, 'planner', ?)
                 """,
                 (
                     hobby_id,
@@ -606,8 +614,21 @@ def toggle_planner_task_done(task_id, done=True, minutes_override=None):
                     mins_to_log,
                     f"Weekly plan: {title}" + (f" — {notes}" if notes else ""),
                     points or 0,
+                    task_id,
                 ),
             )
+    elif not done and linked_task_id is None and hobby_id is not None:
+        # Remove entry that was logged when this planner row was marked done (so statistics are correct)
+        cursor.execute("DELETE FROM entries WHERE source_type = 'planner' AND source_id = ?", (task_id,))
+        # Fallback: remove one legacy entry (before source_type existed) matching this planner row
+        notes_prefix = f"Weekly plan: {title}"
+        cursor.execute(
+            "SELECT id FROM entries WHERE hobby_id = ? AND date = ? AND notes LIKE ? AND source_type IS NULL ORDER BY id DESC LIMIT 1",
+            (hobby_id, date_str, notes_prefix + "%"),
+        )
+        leg = cursor.fetchone()
+        if leg:
+            cursor.execute("DELETE FROM entries WHERE id = ?", (leg[0],))
     conn.commit()
     conn.close()
 
@@ -634,11 +655,21 @@ def set_planner_row_done_only(planner_id: int, done: bool = True, minutes_overri
         mins = int(minutes_override) if minutes_override is not None else (minutes or 0)
         cursor.execute(
             """
-            INSERT INTO entries (hobby_id, date, minutes, notes, points)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO entries (hobby_id, date, minutes, notes, points, source_type, source_id)
+            VALUES (?, ?, ?, ?, ?, 'planner', ?)
             """,
-            (hobby_id, date_str, mins, f"Weekly plan: {title}" + (f" — {notes}" if notes else ""), points or 0),
+            (hobby_id, date_str, mins, f"Weekly plan: {title}" + (f" — {notes}" if notes else ""), points or 0, planner_id),
         )
+    if not done and hobby_id is not None:
+        cursor.execute("DELETE FROM entries WHERE source_type = 'planner' AND source_id = ?", (planner_id,))
+        notes_prefix = f"Weekly plan: {title}"
+        cursor.execute(
+            "SELECT id FROM entries WHERE hobby_id = ? AND date = ? AND notes LIKE ? AND source_type IS NULL ORDER BY id DESC LIMIT 1",
+            (hobby_id, date_str, notes_prefix + "%"),
+        )
+        leg = cursor.fetchone()
+        if leg:
+            cursor.execute("DELETE FROM entries WHERE id = ?", (leg[0],))
     conn.commit()
     conn.close()
 
@@ -939,9 +970,9 @@ def mark_task_done(task_id, is_subtask=False, actual_minutes_override=None):
         cursor.execute("SELECT hobby_id FROM tasks WHERE id = ?", (subtask[0],))
         hobby_id = cursor.fetchone()[0]
         cursor.execute("""
-            INSERT INTO entries (hobby_id, date, minutes, notes, points)
-            VALUES (?, ?, ?, ?, ?)
-        """, (hobby_id, str(date.today()), subtask[1], f"Subtask: {subtask[3]}", subtask[2]))
+            INSERT INTO entries (hobby_id, date, minutes, notes, points, source_type, source_id)
+            VALUES (?, ?, ?, ?, ?, 'subtask', ?)
+        """, (hobby_id, str(date.today()), subtask[1], f"Subtask: {subtask[3]}", subtask[2], task_id))
     else:
         cursor.execute("SELECT hobby_id, minutes, points, name FROM tasks WHERE id = ?", (task_id,))
         task = cursor.fetchone()
@@ -986,9 +1017,9 @@ def mark_task_done(task_id, is_subtask=False, actual_minutes_override=None):
         cursor.execute("UPDATE tasks SET done = 1 WHERE id = ?", (task_id,))
         if minutes_to_log > 0 or points_to_log > 0:
             cursor.execute("""
-                INSERT INTO entries (hobby_id, date, minutes, notes, points)
-                VALUES (?, ?, ?, ?, ?)
-            """, (task[0], str(date.today()), minutes_to_log, f"Task: {task[3]}", points_to_log))
+                INSERT INTO entries (hobby_id, date, minutes, notes, points, source_type, source_id)
+                VALUES (?, ?, ?, ?, ?, 'task', ?)
+            """, (task[0], str(date.today()), minutes_to_log, f"Task: {task[3]}", points_to_log, task_id))
 
     conn.commit()
     conn.close()
@@ -999,9 +1030,41 @@ def mark_task_done(task_id, is_subtask=False, actual_minutes_override=None):
 
 
 def mark_task_undone(task_id):
-    """Set task to not done and sync all linked planner rows to undone (no entry deletion)."""
+    """Set task to not done, remove its (and its subtasks') logged time from statistics, and sync linked planner rows to undone."""
     conn = get_connection()
     cursor = conn.cursor()
+    # Remove entry logged when this task was marked done (new rows have source_type='task')
+    cursor.execute("DELETE FROM entries WHERE source_type = 'task' AND source_id = ?", (task_id,))
+    # Fallback: remove one legacy entry (created before source_type existed) matching this task
+    cursor.execute("SELECT hobby_id, name FROM tasks WHERE id = ?", (task_id,))
+    task_row = cursor.fetchone()
+    if task_row:
+        hobby_id, name = task_row
+        cursor.execute(
+            "SELECT id FROM entries WHERE hobby_id = ? AND notes = ? AND source_type IS NULL ORDER BY id DESC LIMIT 1",
+            (hobby_id, f"Task: {name}"),
+        )
+        leg = cursor.fetchone()
+        if leg:
+            cursor.execute("DELETE FROM entries WHERE id = ?", (leg[0],))
+    # Remove entries for subtasks (by source_id, then one legacy per subtask)
+    cursor.execute("SELECT id, name FROM subtasks WHERE task_id = ?", (task_id,))
+    subtasks = cursor.fetchall()
+    if task_row:
+        hobby_id = task_row[0]
+        for st_id, st_name in subtasks:
+            cursor.execute("DELETE FROM entries WHERE source_type = 'subtask' AND source_id = ?", (st_id,))
+            cursor.execute(
+                "SELECT id FROM entries WHERE hobby_id = ? AND notes = ? AND source_type IS NULL ORDER BY id DESC LIMIT 1",
+                (hobby_id, f"Subtask: {st_name}"),
+            )
+            leg = cursor.fetchone()
+            if leg:
+                cursor.execute("DELETE FROM entries WHERE id = ?", (leg[0],))
+    else:
+        for st_id, _ in subtasks:
+            cursor.execute("DELETE FROM entries WHERE source_type = 'subtask' AND source_id = ?", (st_id,))
+    cursor.execute("UPDATE subtasks SET done = 0 WHERE task_id = ?", (task_id,))
     cursor.execute("UPDATE tasks SET done = 0 WHERE id = ?", (task_id,))
     conn.commit()
     conn.close()
@@ -1009,9 +1072,24 @@ def mark_task_undone(task_id):
 
 
 def mark_subtask_undone(subtask_id: int):
-    """Set subtask to not done (no entry deletion)."""
+    """Set subtask to not done and remove its logged time from statistics."""
     conn = get_connection()
     cursor = conn.cursor()
+    cursor.execute("DELETE FROM entries WHERE source_type = 'subtask' AND source_id = ?", (subtask_id,))
+    cursor.execute("SELECT task_id, name FROM subtasks WHERE id = ?", (subtask_id,))
+    row = cursor.fetchone()
+    if row:
+        t_id, st_name = row
+        cursor.execute("SELECT hobby_id FROM tasks WHERE id = ?", (t_id,))
+        h = cursor.fetchone()
+        if h:
+            cursor.execute(
+                "SELECT id FROM entries WHERE hobby_id = ? AND notes = ? AND source_type IS NULL ORDER BY id DESC LIMIT 1",
+                (h[0], f"Subtask: {st_name}"),
+            )
+            leg = cursor.fetchone()
+            if leg:
+                cursor.execute("DELETE FROM entries WHERE id = ?", (leg[0],))
     cursor.execute("UPDATE subtasks SET done = 0 WHERE id = ?", (subtask_id,))
     conn.commit()
     conn.close()
