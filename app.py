@@ -9,6 +9,7 @@ if str(_project_root) not in sys.path:
 import streamlit as st
 import data.database as db
 from datetime import date
+from itertools import groupby
 import pandas as pd
 import datetime
 import altair as alt
@@ -398,6 +399,74 @@ st.markdown(
         /* Expanders: easier tap */
         .streamlit-expanderHeader { min-height: 2.75rem !important; padding: 0.5rem 0 !important; }
     }
+
+    /* Groceries page: market / garden aesthetic */
+    .groceries-hero {
+        font-family: 'Caveat', 'Nunito', system-ui, sans-serif;
+        font-size: 2.2rem;
+        font-weight: 600;
+        color: #166534;
+        margin-bottom: 0.25rem;
+    }
+    .groceries-missing-card {
+        background: linear-gradient(145deg, rgba(254, 243, 199, 0.95), rgba(254, 249, 195, 0.9));
+        border: 2px solid rgba(22, 101, 52, 0.35);
+        border-radius: 1rem;
+        padding: 1.25rem 1.5rem;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 4px 14px rgba(22, 101, 52, 0.12);
+    }
+    .groceries-missing-title {
+        font-family: 'Caveat', 'Nunito', system-ui, sans-serif;
+        font-size: 1.4rem;
+        font-weight: 700;
+        color: #166534;
+        margin-bottom: 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .groceries-missing-list {
+        font-family: 'Nunito', system-ui, sans-serif;
+        font-size: 1.1rem;
+        color: #1c1917;
+        line-height: 1.7;
+    }
+    .groceries-missing-list span {
+        display: inline-block;
+        margin-right: 0.5rem;
+        margin-bottom: 0.25rem;
+    }
+    .groceries-category-card {
+        background: linear-gradient(180deg, rgba(255,255,255,0.7) 0%, rgba(254, 249, 195, 0.4) 100%);
+        border: 1px solid rgba(124, 45, 18, 0.2);
+        border-radius: 0.85rem;
+        padding: 1rem 1.25rem;
+        margin-bottom: 1rem;
+        box-shadow: 0 2px 10px rgba(124, 45, 18, 0.06);
+    }
+    .groceries-category-name {
+        font-family: 'Caveat', 'Nunito', system-ui, sans-serif;
+        font-size: 1.35rem;
+        font-weight: 600;
+        color: #7c2d12;
+        margin-bottom: 0.5rem;
+    }
+    .groceries-item-row {
+        font-family: 'Nunito', system-ui, sans-serif;
+        font-size: 1.05rem;
+        color: #1f2933;
+        padding: 0.35rem 0;
+        border-bottom: 1px solid rgba(124, 45, 18, 0.08);
+    }
+    .groceries-item-row:last-child { border-bottom: none; }
+    .groceries-item-have { color: #15803d; text-decoration: line-through; opacity: 0.85; }
+    .groceries-empty-msg {
+        font-family: 'Nunito', system-ui, sans-serif;
+        color: #78716c;
+        font-style: italic;
+        padding: 1rem 0;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -421,7 +490,7 @@ with hero_right:
 # -------------------
 
 # Persist current page in URL so refresh returns to same page
-nav_options = ["Add Hobby", "Statistics", "Weekly Planner", "General Tasks"]
+nav_options = ["Add Hobby", "Statistics", "Weekly Planner", "Groceries", "General Tasks"]
 current_page = st.query_params.get("page", nav_options[0])
 if current_page not in nav_options:
     current_page = nav_options[0]
@@ -939,7 +1008,9 @@ elif page == "Weekly Planner":
             edit_pid = pkt_names[edit_name]
             st.caption("Existing items (edit title + time for week, Update, or Remove):")
             items = db.get_planner_packet_items(edit_pid)
-            for item_id, title, saved_default_time in items:
+            for row in items:
+                item_id, title = row[0], row[1]
+                saved_default_time = row[2] if len(row) >= 3 else None
                 # Default time: from instance in week, else saved default for this item, else 09:00
                 current_time_str = None
                 for rows in tasks_by_date.values():
@@ -1045,7 +1116,9 @@ elif page == "Weekly Planner":
                     if any(t["packet_id"] == p_id for t in existing_for_day):
                         st.warning("This packet has already been added for the selected day.")
                     else:
-                        for item_id, item_title, default_time in items_for_packet:
+                        for row in items_for_packet:
+                            item_id, item_title = row[0], row[1]
+                            default_time = row[2] if len(row) >= 3 else None
                             stime = (default_time if default_time and str(default_time).strip() else "09:00")
                             db.add_planner_task(
                                 packet_day.isoformat(),
@@ -1077,7 +1150,9 @@ elif page == "Weekly Planner":
                         d_str = d.isoformat()
                         if d_str in already:
                             continue
-                        for _, item_title, default_time in items_all:
+                        for row in items_all:
+                            item_title = row[1]
+                            default_time = row[2] if len(row) >= 3 else None
                             stime = (default_time if default_time and str(default_time).strip() else "09:00")
                             db.add_planner_task(
                                 d_str,
@@ -1366,6 +1441,104 @@ elif page == "Weekly Planner":
                             st.success("Subtask added!")
                             st.query_params["page"] = "Weekly Planner"
                             st.rerun()
+
+# -------------------
+# Groceries Page
+# -------------------
+elif page == "Groceries":
+    st.markdown('<div class="groceries-hero">🛒 Groceries</div>', unsafe_allow_html=True)
+    st.caption("Keep a list by category. Check off what you have at home and see what’s missing in one place.")
+
+    missing = db.get_all_missing_groceries()
+    st.markdown('<div class="groceries-missing-card">', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="groceries-missing-title">📋 To buy</div>',
+        unsafe_allow_html=True,
+    )
+    if not missing:
+        st.markdown(
+            '<div class="groceries-missing-list groceries-empty-msg">Nothing missing — you’re all set!</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.caption("Check an item when you’ve bought it; it will move to “have at home” below.")
+        by_cat = groupby(missing, key=lambda x: (x[2], x[3]))
+        for (_, cat_name), items in by_cat:
+            st.markdown(f"**{cat_name}**")
+            for item_id, item_name, _, _ in items:
+                row_cols = st.columns([0.12, 3])
+                with row_cols[0]:
+                    bought = st.checkbox("Bought", value=False, key=f"tobuy_cb_{item_id}", label_visibility="collapsed")
+                with row_cols[1]:
+                    st.markdown(f'<div class="groceries-item-row">{item_name}</div>', unsafe_allow_html=True)
+                if bought:
+                    db.set_grocery_item_have_at_home(item_id, True)
+                    st.toast(f"Marked «{item_name}» as have at home.")
+                    st.query_params["page"] = "Groceries"
+                    st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.markdown("**Categories & items**")
+
+    new_cat = st.text_input("New category", placeholder="e.g. Dairy, Produce…", key="grocery_new_cat")
+    if st.button("Add category", key="grocery_add_cat") and new_cat.strip():
+        db.add_grocery_category(new_cat.strip())
+        st.toast("Category added.")
+        st.query_params["page"] = "Groceries"
+        st.rerun()
+
+    categories = db.get_grocery_categories()
+    if not categories:
+        st.info("No categories yet. Add one above, then add items to each category.")
+    else:
+        for cat_id, cat_name, _ in categories:
+            items = db.get_grocery_items(cat_id)
+            with st.expander(f"**{cat_name}** ({len(items)} items)", expanded=False):
+                new_item = st.text_input("Add item", placeholder="New item…", key=f"grocery_new_{cat_id}", label_visibility="collapsed")
+                add_col, _ = st.columns([1, 4])
+                with add_col:
+                    if st.button("Add", key=f"grocery_add_item_{cat_id}") and new_item.strip():
+                        db.add_grocery_item(cat_id, new_item.strip())
+                        st.toast(f"Added to {cat_name}.")
+                        st.query_params["page"] = "Groceries"
+                        st.rerun()
+
+                if not items:
+                    st.markdown('<div class="groceries-empty-msg">No items in this category yet.</div>', unsafe_allow_html=True)
+                else:
+                    for item_id, item_name, have_at_home in items:
+                        row_cols = st.columns([0.15, 2.8, 0.5])
+                        with row_cols[0]:
+                            checked = st.checkbox(
+                                "Have at home",
+                                value=bool(have_at_home),
+                                key=f"grocery_cb_{item_id}_{int(have_at_home)}",
+                                label_visibility="collapsed",
+                            )
+                        with row_cols[1]:
+                            css_class = "groceries-item-have" if have_at_home else ""
+                            st.markdown(
+                                f'<div class="groceries-item-row {css_class}">{"✓ " if have_at_home else ""}{item_name}</div>',
+                                unsafe_allow_html=True,
+                            )
+                        with row_cols[2]:
+                            if st.button("Remove", key=f"grocery_remove_{item_id}"):
+                                db.delete_grocery_item(item_id)
+                                st.toast("Item removed.")
+                                st.query_params["page"] = "Groceries"
+                                st.rerun()
+                        if checked != bool(have_at_home):
+                            db.set_grocery_item_have_at_home(item_id, checked)
+                            st.toast("Updated.")
+                            st.query_params["page"] = "Groceries"
+                            st.rerun()
+
+                if st.button("Delete category", key=f"grocery_del_cat_{cat_id}"):
+                    db.delete_grocery_category(cat_id)
+                    st.toast(f"Category «{cat_name}» and its items removed.")
+                    st.query_params["page"] = "Groceries"
+                    st.rerun()
 
 # -------------------
 # General Tasks Page (standalone list, no day/time, same look as glance)

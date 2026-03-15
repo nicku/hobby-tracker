@@ -159,6 +159,26 @@ def init_db():
     )
     """)
 
+    # ----------------------
+    # Groceries (categories + items, have_at_home flag)
+    # ----------------------
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS grocery_categories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        sort_order INTEGER DEFAULT 0
+    )
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS grocery_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        category_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        have_at_home INTEGER DEFAULT 0,
+        FOREIGN KEY(category_id) REFERENCES grocery_categories(id) ON DELETE CASCADE
+    )
+    """)
+
     # Seed a default "Self care" packet if it doesn't exist yet
     cursor.execute("SELECT id FROM planner_packets WHERE name = ?", ("Self care",))
     row = cursor.fetchone()
@@ -1299,3 +1319,88 @@ def ensure_recurring_tasks_for_today(hobby_id):
 
     conn.commit()
     conn.close()
+
+
+# ----------------------
+# Groceries
+# ----------------------
+def get_grocery_categories():
+    """Return list of (id, name, sort_order) ordered by sort_order, name."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name, sort_order FROM grocery_categories ORDER BY sort_order, name")
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+
+def add_grocery_category(name):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM grocery_categories")
+    next_order = cursor.fetchone()[0]
+    cursor.execute("INSERT INTO grocery_categories (name, sort_order) VALUES (?, ?)", (name.strip(), next_order))
+    conn.commit()
+    conn.close()
+
+
+def delete_grocery_category(category_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM grocery_items WHERE category_id = ?", (category_id,))
+    cursor.execute("DELETE FROM grocery_categories WHERE id = ?", (category_id,))
+    conn.commit()
+    conn.close()
+
+
+def get_grocery_items(category_id):
+    """Return list of (id, name, have_at_home) for the category."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, name, have_at_home FROM grocery_items WHERE category_id = ? ORDER BY name",
+        (category_id,),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+
+def add_grocery_item(category_id, name):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO grocery_items (category_id, name, have_at_home) VALUES (?, ?, 0)", (category_id, name.strip()))
+    conn.commit()
+    conn.close()
+
+
+def delete_grocery_item(item_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM grocery_items WHERE id = ?", (item_id,))
+    conn.commit()
+    conn.close()
+
+
+def set_grocery_item_have_at_home(item_id, have_at_home):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE grocery_items SET have_at_home = ? WHERE id = ?", (1 if have_at_home else 0, item_id))
+    conn.commit()
+    conn.close()
+
+
+def get_all_missing_groceries():
+    """Return list of (item_id, item_name, category_id, category_name) for items where have_at_home = 0."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT i.id, i.name, c.id, c.name
+        FROM grocery_items i
+        JOIN grocery_categories c ON c.id = i.category_id
+        WHERE i.have_at_home = 0
+        ORDER BY c.sort_order, c.name, i.name
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
