@@ -1,0 +1,2 @@
+# For live ingredient search (filter as you type, no Enter needed)
+streamlit-keyup>=0.3.0

@@ -179,6 +179,27 @@ def init_db():
     )
     """)
 
+    # ----------------------
+    # Recipes (name, instructions) + recipe_ingredients (links to grocery_items)
+    # ----------------------
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS recipes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        instructions TEXT
+    )
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS recipe_ingredients (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        recipe_id INTEGER NOT NULL,
+        grocery_item_id INTEGER NOT NULL,
+        UNIQUE(recipe_id, grocery_item_id),
+        FOREIGN KEY(recipe_id) REFERENCES recipes(id) ON DELETE CASCADE,
+        FOREIGN KEY(grocery_item_id) REFERENCES grocery_items(id) ON DELETE CASCADE
+    )
+    """)
+
     # Seed a default "Self care" packet if it doesn't exist yet
     cursor.execute("SELECT id FROM planner_packets WHERE name = ?", ("Self care",))
     row = cursor.fetchone()
@@ -1367,11 +1388,19 @@ def get_grocery_items(category_id):
 
 
 def add_grocery_item(category_id, name):
+    """Add a grocery item. Returns new id, or None if an item with the same name (case-insensitive) already exists."""
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO grocery_items (category_id, name, have_at_home) VALUES (?, ?, 0)", (category_id, name.strip()))
+    name_clean = name.strip()
+    cursor.execute("SELECT id FROM grocery_items WHERE LOWER(TRIM(name)) = LOWER(?)", (name_clean,))
+    if cursor.fetchone():
+        conn.close()
+        return None
+    cursor.execute("INSERT INTO grocery_items (category_id, name, have_at_home) VALUES (?, ?, 0)", (category_id, name_clean))
     conn.commit()
+    new_id = cursor.lastrowid
     conn.close()
+    return new_id
 
 
 def delete_grocery_item(item_id):
@@ -1404,3 +1433,136 @@ def get_all_missing_groceries():
     rows = cursor.fetchall()
     conn.close()
     return rows
+
+
+def get_all_grocery_items():
+    """Return list of (item_id, item_name, category_id, category_name, have_at_home) for all grocery items."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT i.id, i.name, c.id, c.name, i.have_at_home
+        FROM grocery_items i
+        JOIN grocery_categories c ON c.id = i.category_id
+        ORDER BY c.sort_order, c.name, i.name
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+
+# ----------------------
+# Recipes
+# ----------------------
+def get_recipes():
+    """Return list of (id, name, instructions)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name, instructions FROM recipes ORDER BY name")
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+
+def add_recipe(name, instructions=""):
+    """Add a recipe. Returns new id, or None if a recipe with the same name (case-insensitive) already exists."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    name_clean = name.strip()
+    cursor.execute("SELECT id FROM recipes WHERE LOWER(TRIM(name)) = LOWER(?)", (name_clean,))
+    if cursor.fetchone():
+        conn.close()
+        return None
+    cursor.execute("INSERT INTO recipes (name, instructions) VALUES (?, ?)", (name_clean, (instructions or "").strip()))
+    conn.commit()
+    rid = cursor.lastrowid
+    conn.close()
+    return rid
+
+
+def update_recipe(recipe_id, name, instructions=""):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE recipes SET name = ?, instructions = ? WHERE id = ?", (name.strip(), (instructions or "").strip(), recipe_id))
+    conn.commit()
+    conn.close()
+
+
+def delete_recipe(recipe_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM recipe_ingredients WHERE recipe_id = ?", (recipe_id,))
+    cursor.execute("DELETE FROM recipes WHERE id = ?", (recipe_id,))
+    conn.commit()
+    conn.close()
+
+
+def add_recipe_ingredient(recipe_id, grocery_item_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO recipe_ingredients (recipe_id, grocery_item_id) VALUES (?, ?)", (recipe_id, grocery_item_id))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        pass  # already linked
+    conn.close()
+
+
+def remove_recipe_ingredient(recipe_id, grocery_item_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM recipe_ingredients WHERE recipe_id = ? AND grocery_item_id = ?", (recipe_id, grocery_item_id))
+    conn.commit()
+    conn.close()
+
+
+def get_recipe_ingredients(recipe_id):
+    """Return list of (ri_id, grocery_item_id, item_name, category_name, have_at_home)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT ri.id, i.id, i.name, c.name, i.have_at_home
+        FROM recipe_ingredients ri
+        JOIN grocery_items i ON i.id = ri.grocery_item_id
+        JOIN grocery_categories c ON c.id = i.category_id
+        WHERE ri.recipe_id = ?
+        ORDER BY c.name, i.name
+    """, (recipe_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+
+def get_recipe_ingredient_ids(recipe_id):
+    """Return set of grocery_item_ids for a recipe."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT grocery_item_id FROM recipe_ingredients WHERE recipe_id = ?", (recipe_id,))
+    ids = {row[0] for row in cursor.fetchall()}
+    conn.close()
+    return ids
+
+
+def get_recipes_possible_to_cook():
+    """Return list of recipe (id, name, instructions) where every ingredient has have_at_home = 1."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT r.id, r.name, r.instructions
+        FROM recipes r
+        WHERE r.id IN (
+            SELECT recipe_id FROM recipe_ingredients ri
+            JOIN grocery_items i ON i.id = ri.grocery_item_id
+            GROUP BY recipe_id
+            HAVING MIN(i.have_at_home) = 1
+        )
+        AND (SELECT COUNT(*) FROM recipe_ingredients WHERE recipe_id = r.id) > 0
+        ORDER BY r.name
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+
+def set_recipe_ingredients_to_buy(recipe_id):
+    """No-op: missing ingredients (have_at_home = 0) are already on the To buy list. Do not change any ingredients so checked/have-at-home items stay checked."""
+    pass

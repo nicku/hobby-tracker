@@ -478,6 +478,44 @@ st.markdown(
         font-weight: 600;
         color: #7c2d12;
     }
+    /* Recipes page */
+    .recipes-hero { font-family: 'Caveat', cursive, system-ui, sans-serif; font-size: 2.2rem; font-weight: 600; color: #7c2d12; margin-bottom: 0.25rem; }
+    .recipes-possible-card { background: linear-gradient(145deg, rgba(220, 252, 231, 0.95), rgba(187, 247, 208, 0.8)); border: 2px solid rgba(22, 101, 52, 0.4); border-radius: 1rem; padding: 1rem 1.25rem; margin-bottom: 1rem; }
+    .recipes-possible-title { font-family: 'Caveat', cursive, system-ui, sans-serif; font-size: 1.3rem; font-weight: 700; color: #166534; margin-bottom: 0.5rem; }
+    .recipes-list-item { font-family: 'Caveat', cursive, system-ui, sans-serif; font-size: 1.15rem; color: #1f2933; }
+    .recipes-badge-possible { background: #166534; color: #f0fdf4; padding: 0.2rem 0.5rem; border-radius: 0.5rem; font-size: 0.85rem; }
+    .recipes-badge-missing { background: #b45309; color: #fff7ed; padding: 0.2rem 0.5rem; border-radius: 0.5rem; font-size: 0.85rem; }
+
+    /* Recipe cards – glance-style layout */
+    .recipes-glance-wrap { margin-top: 1rem; }
+    .recipe-card { margin-bottom: 1.25rem; border-radius: 0.75rem; border: 1px solid rgba(124, 45, 18, 0.2); background: linear-gradient(180deg, rgba(255,255,255,0.97), rgba(254, 252, 232, 0.4)); padding: 0; overflow: hidden; box-shadow: 0 1px 3px rgba(124, 45, 18, 0.08); }
+    .recipe-card-header { font-family: 'Caveat', 'Nunito', system-ui, sans-serif; font-weight: 600; font-size: 1.6rem; color: #7c2d12; padding: 0.6rem 1rem 0.5rem 1rem; border-bottom: 1px solid rgba(124, 45, 18, 0.12); display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+    .recipe-card-meta { font-size: 0.95rem; color: rgba(124, 45, 18, 0.75); font-weight: 400; }
+    .recipe-ingredients-tree { margin: 0.5rem 0 0.75rem 0; padding-left: 1.25rem; margin-left: 1rem; border-left: 2px solid rgba(124, 45, 18, 0.25); font-size: 1.1rem; line-height: 1.4; font-family: 'Caveat', cursive, system-ui, sans-serif !important; }
+    .recipe-ingredient { margin: 0.28rem 0; font-size: 1.1rem; line-height: 1.4; padding: 0.35rem 0.5rem 0.35rem 0.75rem; border-radius: 0.4rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+    .recipe-ingredient-have { color: #15803d; background: rgba(22, 101, 52, 0.08); }
+    .recipe-ingredient-missing { color: #b45309; background: rgba(180, 83, 9, 0.08); }
+    .recipe-ingredient-emoji { font-size: 1.2em; }
+    .recipe-divider { margin: 0.6rem 0 0.4rem 0; padding-bottom: 0.4rem; border-bottom: 1px dashed rgba(124, 45, 18, 0.3); font-size: 0.8rem; color: rgba(124, 45, 18, 0.6); font-family: 'Nunito', system-ui, sans-serif; }
+    .recipe-section-label { font-family: 'Caveat', 'Nunito', system-ui, sans-serif; font-weight: 600; font-size: 1.25rem; color: #7c2d12; margin: 0.75rem 0 0.35rem 0; }
+    /* Style expanders in recipes list like glance cards */
+    .recipes-glance-wrap details { border-radius: 0.75rem; border: 1px solid rgba(124, 45, 18, 0.2); background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(254, 252, 232, 0.35)); box-shadow: 0 1px 3px rgba(124, 45, 18, 0.08); margin-bottom: 1rem; overflow: hidden; }
+    .recipes-glance-wrap details summary { font-family: 'Caveat', 'Nunito', system-ui, sans-serif !important; font-weight: 600 !important; font-size: 1.5rem !important; color: #7c2d12 !important; padding: 0.65rem 1rem !important; }
+    .recipes-glance-wrap details[open] summary { border-bottom: 1px solid rgba(124, 45, 18, 0.12); }
+    .recipes-glance-wrap .recipe-card { border: none; border-radius: 0; background: transparent; box-shadow: none; padding: 0 1rem 1rem 1rem; }
+
+    /* Recipes at a Glance (same layout as Weekly Planner glance) */
+    .glance-recipes-marker { display: block !important; height: 0 !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; }
+    .glance-recipe-badge { font-size: 0.8rem; margin-bottom: 0.4rem; padding: 0.2rem 0.4rem; border-radius: 0.35rem; background: rgba(22, 101, 52, 0.15); color: #166534; font-family: 'Nunito', system-ui, sans-serif; }
+    .glance-recipe-badge.glance-recipe-missing { background: rgba(180, 83, 9, 0.15); color: #b45309; }
+    .glance-recipe-ing { margin: 0.2rem 0; font-size: 0.95rem; line-height: 1.3; padding: 0.25rem 0; font-family: 'Caveat', cursive, system-ui, sans-serif !important; }
+    .glance-recipe-ing.recipe-ingredient-have { color: #15803d; }
+    .glance-recipe-ing.recipe-ingredient-missing { color: #b45309; }
+    @media (max-width: 768px) {
+        .glance-recipes-marker + [data-testid="stHorizontalBlock"] { display: flex !important; flex-wrap: nowrap !important; overflow-x: auto !important; -webkit-overflow-scrolling: touch; scrollbar-width: thin; margin-left: -0.5rem !important; margin-right: -0.5rem !important; padding: 0.25rem 0.5rem !important; }
+        .glance-recipes-marker + [data-testid="stHorizontalBlock"] [data-testid="column"] { flex: 0 0 auto !important; min-width: 110px !important; }
+        .glance-recipes-marker + [data-testid="stHorizontalBlock"] .section-title { font-size: 0.95rem !important; white-space: nowrap !important; }
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -501,7 +539,7 @@ with hero_right:
 # -------------------
 
 # Persist current page in URL so refresh returns to same page
-nav_options = ["Add Hobby", "Statistics", "Weekly Planner", "Groceries", "General Tasks"]
+nav_options = ["Add Hobby", "Statistics", "Weekly Planner", "Groceries", "Recipes", "General Tasks"]
 current_page = st.query_params.get("page", nav_options[0])
 if current_page not in nav_options:
     current_page = nav_options[0]
@@ -528,7 +566,7 @@ if page == "Add Hobby":
             st.error("This hobby already exists.")
         else:
             db.add_hobby(trimmed)
-            st.success("Hobby added successfully!")
+        st.success("Hobby added successfully!")
     st.subheader("Existing Hobbies")
     hobbies = db.get_hobbies()
     if not hobbies:
@@ -952,9 +990,9 @@ elif page == "Weekly Planner":
                         None,
                         scheduled_time_val,
                     )
-                st.toast("General task added to week.", icon="✅")
-                st.query_params["page"] = "Weekly Planner"
-                st.rerun()
+                    st.toast("General task added to week.", icon="✅")
+                    st.query_params["page"] = "Weekly Planner"
+                    st.rerun()
             elif hobby_for_task not in hobby_dict:
                 st.warning("Please choose a hobby or General (no hobby).")
             else:
@@ -1513,10 +1551,13 @@ elif page == "Groceries":
                     add_col, _ = st.columns([1, 4])
                     with add_col:
                         if st.button("Add", key=f"grocery_add_item_{cat_id}") and new_item.strip():
-                            db.add_grocery_item(cat_id, new_item.strip())
-                            st.toast(f"Added to {cat_name}.")
-                            st.query_params["page"] = "Groceries"
-                            st.rerun()
+                            new_id = db.add_grocery_item(cat_id, new_item.strip())
+                            if new_id is None:
+                                st.error("An ingredient with this name already exists.")
+                            else:
+                                st.toast(f"Added to {cat_name}.")
+                                st.query_params["page"] = "Groceries"
+                                st.rerun()
 
                     if not items:
                         st.markdown('<div class="groceries-empty-msg">No items in this category yet.</div>', unsafe_allow_html=True)
@@ -1553,6 +1594,174 @@ elif page == "Groceries":
                         st.toast(f"Category «{cat_name}» and its items removed.")
                         st.query_params["page"] = "Groceries"
                         st.rerun()
+
+# -------------------
+# Recipes Page
+# -------------------
+elif page == "Recipes":
+    if not hasattr(db, "get_recipes"):
+        st.error("Recipes feature is not loaded. Redeploy or restart the app so the latest database module is used.")
+    else:
+        st.markdown('<div class="recipes-hero">📖 Recipes</div>', unsafe_allow_html=True)
+        st.caption("Build recipes from your grocery list. A recipe is possible to cook when you have all its ingredients at home.")
+
+        possible = db.get_recipes_possible_to_cook() if hasattr(db, "get_recipes_possible_to_cook") else []
+
+        # Add recipe
+        with st.expander("➕ Add new recipe", expanded=False):
+            new_name = st.text_input("Recipe name", key="recipe_new_name", placeholder="e.g. Pasta carbonara")
+            new_instructions = st.text_area("Instructions (optional)", key="recipe_new_instructions", placeholder="Steps…", height=100)
+            if st.button("Create recipe", key="recipe_create_btn") and new_name.strip():
+                rid = db.add_recipe(new_name.strip(), new_instructions.strip())
+                if rid is None:
+                    st.error("A recipe with this name already exists.")
+                else:
+                    st.session_state["recipe_expanded_id"] = rid
+                    st.toast("Recipe created. Add ingredients below.")
+                    st.query_params["page"] = "Recipes"
+                    st.rerun()
+
+        all_recipes = db.get_recipes()
+        if not all_recipes:
+            st.info("No recipes yet. Create one in «Add new recipe» above, then add ingredients from your grocery list.")
+        else:
+            all_items = db.get_all_grocery_items() if hasattr(db, "get_all_grocery_items") else []
+            possible_ids = {r[0] for r in possible}
+
+            # Recipes at a Glance (same layout as Weekly Planner – columns per recipe)
+            st.subheader("Recipes at a Glance")
+            st.markdown('<div class="glance-recipes-marker" aria-hidden="true"></div>', unsafe_allow_html=True)
+            n_glance = min(len(all_recipes), 7)
+            glance_recipes = all_recipes[:n_glance]
+            glance_cols = st.columns(n_glance)
+            for i, (rid, rname, rinstructions) in enumerate(glance_recipes):
+                with glance_cols[i]:
+                    st.markdown(
+                        f"<div class='section-title'>🍳 {rname}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    ing_list = db.get_recipe_ingredients(rid)
+                    is_possible = rid in possible_ids and len(ing_list) > 0
+                    if is_possible:
+                        st.markdown('<div class="glance-recipe-badge">✅ Possible to cook</div>', unsafe_allow_html=True)
+                    elif ing_list:
+                        missing_count = sum(1 for _ in (x for x in ing_list if not x[4]))
+                        st.markdown(f'<div class="glance-recipe-badge glance-recipe-missing">🛒 Missing {missing_count}</div>', unsafe_allow_html=True)
+                    if not ing_list:
+                        st.caption("No ingredients yet")
+                    ing_label = f"🥗 Ingredients ({len(ing_list)})" if ing_list else "🥗 Ingredients"
+                    with st.expander(ing_label, expanded=False, key=f"glance_ing_{rid}"):
+                        if ing_list:
+                            max_ing = 12
+                            for _, _gi, iname, cname, have in ing_list[:max_ing]:
+                                klass = "recipe-ingredient-have" if have else "recipe-ingredient-missing"
+                                icon = "✅" if have else "🛒"
+                                st.markdown(
+                                    f'<div class="glance-recipe-ing {klass}">{icon} {iname} <span style="color:rgba(124,45,18,0.6);font-size:0.85em;">({cname})</span></div>',
+                                    unsafe_allow_html=True,
+                                )
+                            if len(ing_list) > max_ing:
+                                st.caption(f"… +{len(ing_list) - max_ing} more")
+                        else:
+                            st.caption("Add ingredients in the list below.")
+            if len(all_recipes) > n_glance:
+                st.caption(f"First {n_glance} recipes above; expand any recipe below to edit.")
+
+            st.markdown('<div class="section-title">📋 Your recipes</div>', unsafe_allow_html=True)
+            st.markdown('<div class="recipes-glance-wrap">', unsafe_allow_html=True)
+            keep_expanded = st.session_state.get("recipe_expanded_id")
+            for rid, rname, rinstructions in all_recipes:
+                ing_list = db.get_recipe_ingredients(rid)
+                missing_count = sum(1 for _ in (x for x in ing_list if not x[4]))
+                is_possible = rid in possible_ids and len(ing_list) > 0
+                badge = " · ✅ Possible to cook" if is_possible else (f" · ⚠️ Missing {missing_count} ingredient(s)" if ing_list and missing_count > 0 else "")
+                ing_count = f" — 📝 {len(ing_list)} ingredients" if ing_list else " — 📝 no ingredients yet"
+                expander_label = f"🍳 {rname}{ing_count}{badge}"
+                with st.expander(expander_label, expanded=(keep_expanded == rid)):
+                    st.markdown('<div class="recipe-card">', unsafe_allow_html=True)
+                    st.markdown('<div class="recipe-section-label">🥗 Ingredients</div>', unsafe_allow_html=True)
+                    if ing_list:
+                        st.markdown('<div class="recipe-ingredients-tree">', unsafe_allow_html=True)
+                        for _, _gi, iname, cname, have in ing_list:
+                            klass = "recipe-ingredient-have" if have else "recipe-ingredient-missing"
+                            icon = "✅" if have else "🛒"
+                            st.markdown(f'<div class="recipe-ingredient {klass}"><span class="recipe-ingredient-emoji">{icon}</span> {iname} <span style="color:rgba(124,45,18,0.6);font-size:0.9em;">({cname})</span></div>', unsafe_allow_html=True)
+                        st.markdown('</div>', unsafe_allow_html=True)
+                        if not is_possible and missing_count > 0:
+                            st.caption(f"🛒 Missing {missing_count} ingredient(s) — check them off in Groceries.")
+                    else:
+                        st.caption("➕ Add ingredients below so this recipe appears in «Possible to cook» when you have them all.")
+
+                    st.markdown('<div class="recipe-divider">—</div>', unsafe_allow_html=True)
+                    st.markdown('<div class="recipe-section-label">➕ Add ingredient</div>', unsafe_allow_html=True)
+                    if all_items:
+                        task_search = st.text_input("Search ingredients", placeholder="Filter by name...", key=f"recipe_ing_search_{rid}")
+                        current_ing_ids = db.get_recipe_ingredient_ids(rid)
+                        search_lower = (task_search or "").strip().lower()
+                        if search_lower:
+                            filtered = [(item_id, iname, cname) for item_id, iname, _cid, cname, _ in all_items if item_id not in current_ing_ids and (search_lower in iname.lower() or search_lower in cname.lower())]
+                        else:
+                            filtered = []
+                        if not filtered:
+                            if search_lower:
+                                st.markdown("🔍 *No ingredients match your search, or they’re already in this recipe.")
+                            else:
+                                st.markdown("⌨️ *Type above to search for ingredients to add.*")
+                        else:
+                            for item_id, iname, cname in filtered[:30]:
+                                row_cols = st.columns([3, 0.6])
+                                with row_cols[0]:
+                                    st.markdown(f"🥬 **{iname}** *({cname})*")
+                                with row_cols[1]:
+                                    if st.button("Add", key=f"recipe_add_ing_{rid}_{item_id}"):
+                                        db.add_recipe_ingredient(rid, item_id)
+                                        st.session_state["recipe_expanded_id"] = rid
+                                        st.toast(f"Added {iname}.")
+                                        st.query_params["page"] = "Recipes"
+                                        st.rerun()
+                            if len(filtered) > 30:
+                                st.caption(f"… and {len(filtered) - 30} more. Refine your search to narrow.")
+
+                    st.markdown('<div class="recipe-divider">—</div>', unsafe_allow_html=True)
+                    st.markdown('<div class="recipe-section-label">🆕 Ingredient not in the list? Add it and link to a category</div>', unsafe_allow_html=True)
+                    new_ing_name = st.text_input("New ingredient name", key=f"recipe_new_ing_name_{rid}", placeholder="e.g. Parmesan")
+                    categories = db.get_grocery_categories()
+                    cat_options = [(cid, cname) for cid, cname, _ in categories]
+                    if cat_options:
+                        new_ing_cat = st.selectbox("Category", options=range(len(cat_options)), format_func=lambda i: cat_options[i][1], key=f"recipe_new_ing_cat_{rid}")
+                        if st.button("Add ingredient to groceries and to this recipe", key=f"recipe_new_ing_btn_{rid}") and new_ing_name.strip():
+                            cid = cat_options[new_ing_cat][0]
+                            new_id = db.add_grocery_item(cid, new_ing_name.strip())
+                            if new_id is None:
+                                st.error("An ingredient with this name already exists.")
+                            else:
+                                db.add_recipe_ingredient(rid, new_id)
+                                st.session_state["recipe_expanded_id"] = rid
+                                st.toast(f"Added «{new_ing_name.strip()}» to groceries and to recipe.")
+                                st.query_params["page"] = "Recipes"
+                                st.rerun()
+                    else:
+                        st.caption("Create at least one category in Groceries first.")
+
+                    st.markdown('<div class="recipe-divider">—</div>', unsafe_allow_html=True)
+                    st.markdown('<div class="recipe-section-label">✂️ Remove ingredient</div>', unsafe_allow_html=True)
+                    for ri_id, gi_id, iname, cname, _ in ing_list:
+                        if st.button(f"🗑️ Remove {iname}", key=f"recipe_remove_ing_{rid}_{gi_id}"):
+                            db.remove_recipe_ingredient(rid, gi_id)
+                            st.session_state["recipe_expanded_id"] = rid
+                            st.toast("Removed.")
+                            st.query_params["page"] = "Recipes"
+                            st.rerun()
+
+                    if st.button("🗑️ Delete recipe", key=f"recipe_del_{rid}"):
+                        db.delete_recipe(rid)
+                        if st.session_state.get("recipe_expanded_id") == rid:
+                            del st.session_state["recipe_expanded_id"]
+                        st.toast(f"Recipe «{rname}» deleted.")
+                        st.query_params["page"] = "Recipes"
+                        st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 
 # -------------------
 # General Tasks Page (standalone list, no day/time, same look as glance)
