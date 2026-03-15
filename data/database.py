@@ -117,9 +117,14 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         packet_id INTEGER NOT NULL,
         title TEXT NOT NULL,
+        default_scheduled_time TEXT,
         FOREIGN KEY(packet_id) REFERENCES planner_packets(id)
     )
     """)
+    cursor.execute("PRAGMA table_info(planner_packet_items)")
+    pkt_item_cols = [row[1] for row in cursor.fetchall()]
+    if "default_scheduled_time" not in pkt_item_cols:
+        cursor.execute("ALTER TABLE planner_packet_items ADD COLUMN default_scheduled_time TEXT")
 
     # Ensure newer columns exist in planner_tasks for older DBs
     cursor.execute("PRAGMA table_info(planner_tasks)")
@@ -528,12 +533,66 @@ def update_planner_packet_item_scheduled_time_for_week(
     cursor = conn.cursor()
     cursor.execute(
         """
-        UPDATE planner_tasks
-        SET scheduled_time = ?
+        SELECT id FROM planner_tasks
         WHERE packet_id = ? AND title = ? AND date BETWEEN ? AND ?
         """,
-        (scheduled_time if scheduled_time else None, packet_id, title, start_date_str, end_date_str),
+        (packet_id, title, start_date_str, end_date_str),
     )
+    ids = [row[0] for row in cursor.fetchall()]
+    time_val = (scheduled_time.strip() if scheduled_time and str(scheduled_time).strip() else None)
+    for pid in ids:
+        cursor.execute("UPDATE planner_tasks SET scheduled_time = ? WHERE id = ?", (time_val, pid))
+    conn.commit()
+    conn.close()
+
+
+def update_planner_packet_item_scheduled_time_for_week_by_item_id(
+    packet_item_id: int, scheduled_time: str | None, start_date_str: str, end_date_str: str
+):
+    """Set scheduled_time for all planner_tasks in the date range that match this packet item. Uses planner_packet_items to get packet_id and current title so it always matches."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT packet_id, title FROM planner_packet_items WHERE id = ?",
+        (packet_item_id,),
+    )
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return
+    packet_id, title = row
+    cursor.execute(
+        """
+        SELECT id FROM planner_tasks
+        WHERE packet_id = ? AND title = ? AND date BETWEEN ? AND ?
+        """,
+        (packet_id, title, start_date_str, end_date_str),
+    )
+    ids = [r[0] for r in cursor.fetchall()]
+    time_val = (scheduled_time.strip() if scheduled_time and str(scheduled_time).strip() else None)
+    for pid in ids:
+        cursor.execute("UPDATE planner_tasks SET scheduled_time = ? WHERE id = ?", (time_val, pid))
+    conn.commit()
+    conn.close()
+
+
+def update_planner_packet_item_scheduled_time_for_week_by_titles(
+    packet_id: int, title_old: str, title_new: str, scheduled_time: str | None, start_date_str: str, end_date_str: str
+):
+    """Set scheduled_time for planner_tasks matching this packet and either title. Uses ID-based update so it always applies."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT id FROM planner_tasks
+        WHERE packet_id = ? AND (title = ? OR title = ?) AND date BETWEEN ? AND ?
+        """,
+        (packet_id, title_old, title_new, start_date_str, end_date_str),
+    )
+    ids = [row[0] for row in cursor.fetchall()]
+    time_val = (scheduled_time.strip() if scheduled_time and str(scheduled_time).strip() else None)
+    for pid in ids:
+        cursor.execute("UPDATE planner_tasks SET scheduled_time = ? WHERE id = ?", (time_val, pid))
     conn.commit()
     conn.close()
 
@@ -684,10 +743,11 @@ def get_planner_packets():
 
 
 def get_planner_packet_items(packet_id):
+    """Return (id, title, default_scheduled_time) for each item. default_scheduled_time may be None (use 09:00 when adding to week)."""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT id, title FROM planner_packet_items WHERE packet_id = ? ORDER BY id",
+        "SELECT id, title, default_scheduled_time FROM planner_packet_items WHERE packet_id = ? ORDER BY id",
         (packet_id,),
     )
     rows = cursor.fetchall()
@@ -733,6 +793,48 @@ def add_planner_packet_item(packet_id: int, title: str):
         "INSERT INTO planner_packet_items (packet_id, title) VALUES (?, ?)",
         (packet_id, title),
     )
+    conn.commit()
+    conn.close()
+
+
+def add_planner_packet_item_and_schedule_for_week(
+    packet_id: int, title: str, week_start_str: str, week_end_str: str, minutes: int = 0
+):
+    """Add an item to a packet and create planner_tasks for every day in the week that already has this packet (so the new item appears in the glance)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO planner_packet_items (packet_id, title) VALUES (?, ?)",
+        (packet_id, title.strip()),
+    )
+    conn.commit()
+    cursor.execute(
+        """
+        SELECT DISTINCT date FROM planner_tasks
+        WHERE packet_id = ? AND date BETWEEN ? AND ?
+        """,
+        (packet_id, week_start_str, week_end_str),
+    )
+    dates = [row[0] for row in cursor.fetchall()]
+    default_time = "09:00"
+    for d in dates:
+        cursor.execute(
+            """
+            INSERT INTO planner_tasks (date, title, notes, frequency, packet_id, minutes, hobby_id, points, task_id, scheduled_time)
+            VALUES (?, ?, '', 'once', ?, ?, NULL, 0, NULL, ?)
+            """,
+            (d, title.strip(), packet_id, minutes, default_time),
+        )
+    conn.commit()
+    conn.close()
+
+
+def update_planner_packet_item_default_time(item_id: int, scheduled_time: str | None):
+    """Save the default scheduled time for this packet item (used when adding the packet to a day)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    val = (scheduled_time.strip() if scheduled_time and str(scheduled_time).strip() else None)
+    cursor.execute("UPDATE planner_packet_items SET default_scheduled_time = ? WHERE id = ?", (val, item_id))
     conn.commit()
     conn.close()
 

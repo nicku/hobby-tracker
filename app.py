@@ -939,8 +939,8 @@ elif page == "Weekly Planner":
             edit_pid = pkt_names[edit_name]
             st.caption("Existing items (edit title + time for week, Update, or Remove):")
             items = db.get_planner_packet_items(edit_pid)
-            for item_id, title in items:
-                # Default time from any instance of this packet item in the week (earlier time = appears earlier in glance)
+            for item_id, title, saved_default_time in items:
+                # Default time: from instance in week, else saved default for this item, else 09:00
                 current_time_str = None
                 for rows in tasks_by_date.values():
                     for task in rows:
@@ -949,6 +949,8 @@ elif page == "Weekly Planner":
                             break
                     if current_time_str:
                         break
+                if not current_time_str and saved_default_time and len(str(saved_default_time).strip()) >= 5:
+                    current_time_str = str(saved_default_time).strip()
                 if current_time_str and len(current_time_str) >= 5:
                     try:
                         default_time = datetime.time(int(current_time_str[:2]), int(current_time_str[3:5]))
@@ -974,18 +976,22 @@ elif page == "Weekly Planner":
                     )
                 with col_update:
                     if st.button("Update", key=f"packet_item_update_{item_id}"):
-                        if edited_title.strip():
+                        if not edited_title.strip():
+                            st.warning("Title cannot be empty.")
+                        else:
                             new_title = edited_title.strip()
                             db.update_planner_packet_item(item_id, new_title)
-                            db.update_planner_packet_item_scheduled_time_for_week(
-                                edit_pid, new_title, item_time.strftime("%H:%M"),
+                            time_str = item_time.strftime("%H:%M")
+                            # Save as default so adding packet to a day later uses this time (and 09:00 if never set)
+                            db.update_planner_packet_item_default_time(item_id, time_str)
+                            # Update scheduled_time for existing planner rows in the week (glance will reflect)
+                            db.update_planner_packet_item_scheduled_time_for_week_by_item_id(
+                                item_id, time_str,
                                 week_start.isoformat(), week_end.isoformat(),
                             )
-                            st.toast("Item title & time updated for week.")
+                            st.toast("Item title & time updated (saved as default for when you add packet to a day).")
                             st.query_params["page"] = "Weekly Planner"
                             st.rerun()
-                        else:
-                            st.warning("Title cannot be empty.")
                 with col_remove:
                     if st.button("Remove", key=f"packet_item_remove_{item_id}"):
                         db.delete_planner_packet_item(item_id)
@@ -994,8 +1000,12 @@ elif page == "Weekly Planner":
                         st.rerun()
             new_item_title = st.text_input("New item title", key="planner_new_packet_item")
             if st.button("Add item to packet", key="planner_add_packet_item_btn") and new_item_title.strip():
-                db.add_planner_packet_item(edit_pid, new_item_title.strip())
-                st.toast("Item added to packet.", icon="✅")
+                db.add_planner_packet_item_and_schedule_for_week(
+                    edit_pid, new_item_title.strip(),
+                    week_start.isoformat(), week_end.isoformat(),
+                    minutes=0,
+                )
+                st.toast("Item added to packet and to every day this week that has this packet.", icon="✅")
                 st.query_params["page"] = "Weekly Planner"
                 st.rerun()
         else:
@@ -1025,88 +1035,64 @@ elif page == "Weekly Planner":
                 value=0,
                 key="planner_packet_minutes",
             )
-            p_id_for_items = packet_dict.get(packet_name)
-            items_for_packet = db.get_planner_packet_items(p_id_for_items) if p_id_for_items else []
-            set_packet_times = st.checkbox("Set scheduled time for each item", key="planner_packet_set_times")
-            item_times = {}
-            if set_packet_times and items_for_packet and p_id_for_items:
-                st.caption("Time for each item (order in glance):")
-                for i, (item_id, item_title) in enumerate(items_for_packet):
-                    default = datetime.time(9, min(59, i * 10))
-                    item_times[item_id] = st.time_input(
-                        item_title,
-                        value=default,
-                        key=f"packet_item_time_{p_id_for_items}_{item_id}",
-                        label_visibility="collapsed",
-                    )
+            items_for_packet = db.get_planner_packet_items(packet_dict[packet_name]) if packet_dict.get(packet_name) else []
             if st.button("Add Packet to Day", key="planner_add_packet_btn"):
                 p_id = packet_dict[packet_name]
-                existing_for_day = tasks_by_date.get(packet_day.isoformat(), [])
-                if any(t["packet_id"] == p_id for t in existing_for_day):
-                    st.warning("This packet has already been added for the selected day.")
+                if not items_for_packet:
+                    st.warning("This packet has no items. Add items in **Create / edit packets** first.")
                 else:
-                    for item_id, item_title in items_for_packet:
-                        scheduled_time = None
-                        if set_packet_times and item_id in item_times:
-                            scheduled_time = item_times[item_id].strftime("%H:%M")
-                        db.add_planner_task(
-                            packet_day.isoformat(),
-                            item_title,
-                            "",
-                            "once",
-                            packet_id=p_id,
-                            minutes=est_packet_minutes,
-                            hobby_id=None,
-                            points=0,
-                            scheduled_time=scheduled_time,
-                        )
-                    st.success(f"Packet '{packet_name}' added to {packet_day.strftime('%a %d %b')}.")
-                    st.query_params["page"] = "Weekly Planner"
-                    st.rerun()
-            set_packet_times_all = st.checkbox(
-                "Set scheduled time for items (when adding to all days)",
-                key="planner_packet_set_times_all",
-            )
-            start_time_all = None
-            if set_packet_times_all:
-                start_time_all = st.time_input(
-                    "First item at (then +10 min per item)",
-                    value=datetime.time(9, 0),
-                    key="planner_packet_start_time_all",
-                )
+                    existing_for_day = tasks_by_date.get(packet_day.isoformat(), [])
+                    if any(t["packet_id"] == p_id for t in existing_for_day):
+                        st.warning("This packet has already been added for the selected day.")
+                    else:
+                        for item_id, item_title, default_time in items_for_packet:
+                            stime = (default_time if default_time and str(default_time).strip() else "09:00")
+                            db.add_planner_task(
+                                packet_day.isoformat(),
+                                item_title,
+                                "",
+                                "once",
+                                packet_id=p_id,
+                                minutes=est_packet_minutes,
+                                hobby_id=None,
+                                points=0,
+                                scheduled_time=stime,
+                            )
+                        st.success(f"Packet '{packet_name}' added to {packet_day.strftime('%a %d %b')}.")
+                        st.query_params["page"] = "Weekly Planner"
+                        st.rerun()
             if st.button("Add Packet for All Days", key="planner_add_packet_all_btn"):
                 p_id = packet_dict[packet_name]
-                already = {
-                    d_str
-                    for d_str, rows in tasks_by_date.items()
-                    for t in rows
-                    if t["packet_id"] == p_id
-                }
-                items = db.get_planner_packet_items(p_id)
-                for d in week_days:
-                    d_str = d.isoformat()
-                    if d_str in already:
-                        continue
-                    for i, (_, item_title) in enumerate(items):
-                        scheduled_time = None
-                        if set_packet_times_all and start_time_all is not None:
-                            total_mins = start_time_all.hour * 60 + start_time_all.minute + i * 10
-                            h, m = divmod(total_mins, 60)
-                            scheduled_time = f"{h:02d}:{m:02d}"
-                        db.add_planner_task(
-                            d_str,
-                            item_title,
-                            "",
-                            "once",
-                            packet_id=p_id,
-                            minutes=est_packet_minutes,
-                            hobby_id=None,
-                            points=0,
-                            scheduled_time=scheduled_time,
-                        )
-                st.success(f"Packet '{packet_name}' added to all days of the week.")
-                st.query_params["page"] = "Weekly Planner"
-                st.rerun()
+                items_all = db.get_planner_packet_items(p_id)
+                if not items_all:
+                    st.warning("This packet has no items. Add items in **Create / edit packets** first.")
+                else:
+                    already = {
+                        d_str
+                        for d_str, rows in tasks_by_date.items()
+                        for t in rows
+                        if t["packet_id"] == p_id
+                    }
+                    for d in week_days:
+                        d_str = d.isoformat()
+                        if d_str in already:
+                            continue
+                        for _, item_title, default_time in items_all:
+                            stime = (default_time if default_time and str(default_time).strip() else "09:00")
+                            db.add_planner_task(
+                                d_str,
+                                item_title,
+                                "",
+                                "once",
+                                packet_id=p_id,
+                                minutes=est_packet_minutes,
+                                hobby_id=None,
+                                points=0,
+                                scheduled_time=stime,
+                            )
+                    st.success(f"Packet '{packet_name}' added to all days of the week.")
+                    st.query_params["page"] = "Weekly Planner"
+                    st.rerun()
             if st.button("Remove Selected Packet", key="planner_remove_packet_btn"):
                 p_id = packet_dict[packet_name]
                 db.delete_planner_packet(p_id)
