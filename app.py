@@ -6,8 +6,13 @@ _project_root = Path(__file__).resolve().parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
+import importlib
 import streamlit as st
 import data.database as db
+
+# Reload so a normal push/deploy always uses the latest database.py (avoids stale module cache)
+importlib.reload(db)
+
 from datetime import date
 from itertools import groupby
 import pandas as pd
