@@ -432,7 +432,7 @@ st.markdown(
         gap: 0.5rem;
     }
     .groceries-missing-list {
-        font-family: 'Nunito', system-ui, sans-serif;
+        font-family: 'Caveat', cursive, system-ui, sans-serif;
         font-size: 1.1rem;
         color: #1c1917;
         line-height: 1.7;
@@ -458,19 +458,25 @@ st.markdown(
         margin-bottom: 0.5rem;
     }
     .groceries-item-row {
-        font-family: 'Nunito', system-ui, sans-serif;
-        font-size: 1.05rem;
+        font-family: 'Caveat', cursive, system-ui, sans-serif !important;
+        font-size: 1.2rem;
         color: #1f2933;
         padding: 0.35rem 0;
         border-bottom: 1px solid rgba(124, 45, 18, 0.08);
     }
     .groceries-item-row:last-child { border-bottom: none; }
-    .groceries-item-have { color: #15803d; text-decoration: line-through; opacity: 0.85; }
+    .groceries-item-have { color: #15803d; text-decoration: line-through; opacity: 0.85; font-family: 'Caveat', cursive, system-ui, sans-serif !important; }
     .groceries-empty-msg {
-        font-family: 'Nunito', system-ui, sans-serif;
+        font-family: 'Caveat', cursive, system-ui, sans-serif;
         color: #78716c;
         font-style: italic;
         padding: 1rem 0;
+    }
+    .groceries-cat-label, .groceries-section-head {
+        font-family: 'Caveat', cursive, system-ui, sans-serif !important;
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: #7c2d12;
     }
     </style>
     """,
@@ -1472,7 +1478,7 @@ elif page == "Groceries":
             st.caption("Check an item when you’ve bought it; it will move to “have at home” below.")
             by_cat = groupby(missing, key=lambda x: (x[2], x[3]))
             for (_, cat_name), items in by_cat:
-                st.markdown(f"**{cat_name}**")
+                st.markdown(f'<div class="groceries-cat-label">{cat_name}</div>', unsafe_allow_html=True)
                 for item_id, item_name, _, _ in items:
                     row_cols = st.columns([0.12, 3])
                     with row_cols[0]:
@@ -1487,7 +1493,7 @@ elif page == "Groceries":
         st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown("---")
-        st.markdown("**Categories & items**")
+        st.markdown('<div class="groceries-section-head">Categories & items</div>', unsafe_allow_html=True)
 
         new_cat = st.text_input("New category", placeholder="e.g. Dairy, Produce…", key="grocery_new_cat")
         if st.button("Add category", key="grocery_add_cat") and new_cat.strip():
