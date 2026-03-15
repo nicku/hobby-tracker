@@ -1549,12 +1549,15 @@ elif page == "Groceries":
         if not categories:
             st.info("No categories yet. Add one above, then add items to each category.")
         else:
-            # Use URL query param so "keep open" persists across reruns on Streamlit Cloud (session_state can be reset there)
-            grocery_open = st.query_params.get("grocery_open")
+            # One-shot: only expand a category on the run immediately after add/remove/update (so no category opens by default on fresh load).
+            expand_cat_id = st.session_state.pop("grocery_keep_open_cat_id", None)
             for cat_id, cat_name, _ in categories:
                 items = db.get_grocery_items(cat_id)
-                cat_expanded = grocery_open == str(cat_id)
-                with st.expander(f"**{cat_name}** ({len(items)} items)", expanded=cat_expanded, key=f"grocery_cat_{cat_id}"):
+                cat_expanded = (expand_cat_id is not None and expand_cat_id == cat_id)
+                exp_kw = {"expanded": cat_expanded}
+                if expand_cat_id is not None:
+                    exp_kw["key"] = f"grocery_cat_{cat_id}"
+                with st.expander(f"**{cat_name}** ({len(items)} items)", **exp_kw):
                     new_item = st.text_input("Add item", placeholder="New item…", key=f"grocery_new_{cat_id}", label_visibility="collapsed")
                     add_col, _ = st.columns([1, 4])
                     with add_col:
@@ -1563,7 +1566,7 @@ elif page == "Groceries":
                             if new_id is None:
                                 st.error("An ingredient with this name already exists.")
                             else:
-                                st.query_params["grocery_open"] = str(cat_id)
+                                st.session_state["grocery_keep_open_cat_id"] = cat_id
                                 st.query_params["page"] = "Groceries"
                                 st.toast(f"Added to {cat_name}.")
                                 st.rerun()
@@ -1589,21 +1592,21 @@ elif page == "Groceries":
                             with row_cols[2]:
                                 if st.button("Remove", key=f"grocery_remove_{item_id}"):
                                     db.delete_grocery_item(item_id)
-                                    st.query_params["grocery_open"] = str(cat_id)
+                                    st.session_state["grocery_keep_open_cat_id"] = cat_id
                                     st.query_params["page"] = "Groceries"
                                     st.toast("Item removed.")
                                     st.rerun()
                             if checked != bool(have_at_home):
                                 db.set_grocery_item_have_at_home(item_id, checked)
-                                st.query_params["grocery_open"] = str(cat_id)
+                                st.session_state["grocery_keep_open_cat_id"] = cat_id
                                 st.query_params["page"] = "Groceries"
                                 st.toast("Updated.")
                                 st.rerun()
 
                     if st.button("Delete category", key=f"grocery_del_cat_{cat_id}"):
                         db.delete_grocery_category(cat_id)
-                        if st.query_params.get("grocery_open") == str(cat_id):
-                            del st.query_params["grocery_open"]
+                        if st.session_state.get("grocery_keep_open_cat_id") == cat_id:
+                            del st.session_state["grocery_keep_open_cat_id"]
                         st.toast(f"Category «{cat_name}» and its items removed.")
                         st.query_params["page"] = "Groceries"
                         st.rerun()
