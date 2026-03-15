@@ -1446,99 +1446,102 @@ elif page == "Weekly Planner":
 # Groceries Page
 # -------------------
 elif page == "Groceries":
-    st.markdown('<div class="groceries-hero">🛒 Groceries</div>', unsafe_allow_html=True)
-    st.caption("Keep a list by category. Check off what you have at home and see what’s missing in one place.")
+    if not hasattr(db, "get_all_missing_groceries"):
+        st.error("Groceries feature is not loaded. Redeploy the app (or restart Streamlit) so the latest database module is used.")
+    else:
+        st.markdown('<div class="groceries-hero">🛒 Groceries</div>', unsafe_allow_html=True)
+        st.caption("Keep a list by category. Check off what you have at home and see what’s missing in one place.")
 
-    missing = db.get_all_missing_groceries()
-    st.markdown('<div class="groceries-missing-card">', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="groceries-missing-title">📋 To buy</div>',
-        unsafe_allow_html=True,
-    )
-    if not missing:
+        missing = db.get_all_missing_groceries()
+        st.markdown('<div class="groceries-missing-card">', unsafe_allow_html=True)
         st.markdown(
-            '<div class="groceries-missing-list groceries-empty-msg">Nothing missing — you’re all set!</div>',
+            '<div class="groceries-missing-title">📋 To buy</div>',
             unsafe_allow_html=True,
         )
-    else:
-        st.caption("Check an item when you’ve bought it; it will move to “have at home” below.")
-        by_cat = groupby(missing, key=lambda x: (x[2], x[3]))
-        for (_, cat_name), items in by_cat:
-            st.markdown(f"**{cat_name}**")
-            for item_id, item_name, _, _ in items:
-                row_cols = st.columns([0.12, 3])
-                with row_cols[0]:
-                    bought = st.checkbox("Bought", value=False, key=f"tobuy_cb_{item_id}", label_visibility="collapsed")
-                with row_cols[1]:
-                    st.markdown(f'<div class="groceries-item-row">{item_name}</div>', unsafe_allow_html=True)
-                if bought:
-                    db.set_grocery_item_have_at_home(item_id, True)
-                    st.toast(f"Marked «{item_name}» as have at home.")
-                    st.query_params["page"] = "Groceries"
-                    st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("---")
-    st.markdown("**Categories & items**")
-
-    new_cat = st.text_input("New category", placeholder="e.g. Dairy, Produce…", key="grocery_new_cat")
-    if st.button("Add category", key="grocery_add_cat") and new_cat.strip():
-        db.add_grocery_category(new_cat.strip())
-        st.toast("Category added.")
-        st.query_params["page"] = "Groceries"
-        st.rerun()
-
-    categories = db.get_grocery_categories()
-    if not categories:
-        st.info("No categories yet. Add one above, then add items to each category.")
-    else:
-        for cat_id, cat_name, _ in categories:
-            items = db.get_grocery_items(cat_id)
-            with st.expander(f"**{cat_name}** ({len(items)} items)", expanded=False):
-                new_item = st.text_input("Add item", placeholder="New item…", key=f"grocery_new_{cat_id}", label_visibility="collapsed")
-                add_col, _ = st.columns([1, 4])
-                with add_col:
-                    if st.button("Add", key=f"grocery_add_item_{cat_id}") and new_item.strip():
-                        db.add_grocery_item(cat_id, new_item.strip())
-                        st.toast(f"Added to {cat_name}.")
+        if not missing:
+            st.markdown(
+                '<div class="groceries-missing-list groceries-empty-msg">Nothing missing — you’re all set!</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.caption("Check an item when you’ve bought it; it will move to “have at home” below.")
+            by_cat = groupby(missing, key=lambda x: (x[2], x[3]))
+            for (_, cat_name), items in by_cat:
+                st.markdown(f"**{cat_name}**")
+                for item_id, item_name, _, _ in items:
+                    row_cols = st.columns([0.12, 3])
+                    with row_cols[0]:
+                        bought = st.checkbox("Bought", value=False, key=f"tobuy_cb_{item_id}", label_visibility="collapsed")
+                    with row_cols[1]:
+                        st.markdown(f'<div class="groceries-item-row">{item_name}</div>', unsafe_allow_html=True)
+                    if bought:
+                        db.set_grocery_item_have_at_home(item_id, True)
+                        st.toast(f"Marked «{item_name}» as have at home.")
                         st.query_params["page"] = "Groceries"
                         st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
 
-                if not items:
-                    st.markdown('<div class="groceries-empty-msg">No items in this category yet.</div>', unsafe_allow_html=True)
-                else:
-                    for item_id, item_name, have_at_home in items:
-                        row_cols = st.columns([0.15, 2.8, 0.5])
-                        with row_cols[0]:
-                            checked = st.checkbox(
-                                "Have at home",
-                                value=bool(have_at_home),
-                                key=f"grocery_cb_{item_id}_{int(have_at_home)}",
-                                label_visibility="collapsed",
-                            )
-                        with row_cols[1]:
-                            css_class = "groceries-item-have" if have_at_home else ""
-                            st.markdown(
-                                f'<div class="groceries-item-row {css_class}">{"✓ " if have_at_home else ""}{item_name}</div>',
-                                unsafe_allow_html=True,
-                            )
-                        with row_cols[2]:
-                            if st.button("Remove", key=f"grocery_remove_{item_id}"):
-                                db.delete_grocery_item(item_id)
-                                st.toast("Item removed.")
-                                st.query_params["page"] = "Groceries"
-                                st.rerun()
-                        if checked != bool(have_at_home):
-                            db.set_grocery_item_have_at_home(item_id, checked)
-                            st.toast("Updated.")
+        st.markdown("---")
+        st.markdown("**Categories & items**")
+
+        new_cat = st.text_input("New category", placeholder="e.g. Dairy, Produce…", key="grocery_new_cat")
+        if st.button("Add category", key="grocery_add_cat") and new_cat.strip():
+            db.add_grocery_category(new_cat.strip())
+            st.toast("Category added.")
+            st.query_params["page"] = "Groceries"
+            st.rerun()
+
+        categories = db.get_grocery_categories()
+        if not categories:
+            st.info("No categories yet. Add one above, then add items to each category.")
+        else:
+            for cat_id, cat_name, _ in categories:
+                items = db.get_grocery_items(cat_id)
+                with st.expander(f"**{cat_name}** ({len(items)} items)", expanded=False):
+                    new_item = st.text_input("Add item", placeholder="New item…", key=f"grocery_new_{cat_id}", label_visibility="collapsed")
+                    add_col, _ = st.columns([1, 4])
+                    with add_col:
+                        if st.button("Add", key=f"grocery_add_item_{cat_id}") and new_item.strip():
+                            db.add_grocery_item(cat_id, new_item.strip())
+                            st.toast(f"Added to {cat_name}.")
                             st.query_params["page"] = "Groceries"
                             st.rerun()
 
-                if st.button("Delete category", key=f"grocery_del_cat_{cat_id}"):
-                    db.delete_grocery_category(cat_id)
-                    st.toast(f"Category «{cat_name}» and its items removed.")
-                    st.query_params["page"] = "Groceries"
-                    st.rerun()
+                    if not items:
+                        st.markdown('<div class="groceries-empty-msg">No items in this category yet.</div>', unsafe_allow_html=True)
+                    else:
+                        for item_id, item_name, have_at_home in items:
+                            row_cols = st.columns([0.15, 2.8, 0.5])
+                            with row_cols[0]:
+                                checked = st.checkbox(
+                                    "Have at home",
+                                    value=bool(have_at_home),
+                                    key=f"grocery_cb_{item_id}_{int(have_at_home)}",
+                                    label_visibility="collapsed",
+                                )
+                            with row_cols[1]:
+                                css_class = "groceries-item-have" if have_at_home else ""
+                                st.markdown(
+                                    f'<div class="groceries-item-row {css_class}">{"✓ " if have_at_home else ""}{item_name}</div>',
+                                    unsafe_allow_html=True,
+                                )
+                            with row_cols[2]:
+                                if st.button("Remove", key=f"grocery_remove_{item_id}"):
+                                    db.delete_grocery_item(item_id)
+                                    st.toast("Item removed.")
+                                    st.query_params["page"] = "Groceries"
+                                    st.rerun()
+                            if checked != bool(have_at_home):
+                                db.set_grocery_item_have_at_home(item_id, checked)
+                                st.toast("Updated.")
+                                st.query_params["page"] = "Groceries"
+                                st.rerun()
+
+                    if st.button("Delete category", key=f"grocery_del_cat_{cat_id}"):
+                        db.delete_grocery_category(cat_id)
+                        st.toast(f"Category «{cat_name}» and its items removed.")
+                        st.query_params["page"] = "Groceries"
+                        st.rerun()
 
 # -------------------
 # General Tasks Page (standalone list, no day/time, same look as glance)
