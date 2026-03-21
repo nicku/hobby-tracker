@@ -1,5 +1,6 @@
 import sqlite3
 import pandas as pd
+from collections import defaultdict
 from datetime import date, timedelta
 
 DB_PATH = "data/hobbies.db"
@@ -200,6 +201,17 @@ def init_db():
     )
     """)
 
+    # Weekly aggregates of time spent per hobby (synced from entries; Sunday week start, same as planner)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS weekly_hobby_time (
+        week_start TEXT NOT NULL,
+        hobby_id INTEGER NOT NULL,
+        minutes INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (week_start, hobby_id),
+        FOREIGN KEY(hobby_id) REFERENCES hobbies(id) ON DELETE CASCADE
+    )
+    """)
+
     # Seed a default "Self care" packet if it doesn't exist yet
     cursor.execute("SELECT id FROM planner_packets WHERE name = ?", ("Self care",))
     row = cursor.fetchone()
@@ -218,6 +230,9 @@ def init_db():
 
     conn.commit()
     conn.close()
+
+    # Populate weekly hobby aggregates from existing entries (idempotent)
+    sync_weekly_hobby_time_from_entries()
 
 
 # ----------------------
@@ -419,6 +434,77 @@ def get_minutes_for_hobbies_in_range(start_date_str, end_date_str):
         """,
         conn,
         params=(start_date_str, end_date_str),
+    )
+    conn.close()
+    return df
+
+
+def _week_start_sunday(d: date) -> date:
+    """Sunday of the week containing d (matches Weekly Planner / Statistics)."""
+    return d - timedelta(days=(d.weekday() + 1) % 7)
+
+
+def sync_weekly_hobby_time_from_entries():
+    """
+    Rebuild weekly_hobby_time from entries: sum minutes per hobby per calendar week (week_start = Sunday ISO date).
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT hobby_id, date, minutes FROM entries WHERE hobby_id IS NOT NULL")
+    rows = cursor.fetchall()
+    agg = defaultdict(int)
+    for hobby_id, date_str, minutes in rows:
+        if not date_str:
+            continue
+        try:
+            d = date.fromisoformat(str(date_str)[:10])
+        except ValueError:
+            continue
+        ws = _week_start_sunday(d).isoformat()
+        agg[(ws, int(hobby_id))] += int(minutes or 0)
+    cursor.execute("DELETE FROM weekly_hobby_time")
+    for (week_start, hid), total in agg.items():
+        cursor.execute(
+            "INSERT INTO weekly_hobby_time (week_start, hobby_id, minutes) VALUES (?, ?, ?)",
+            (week_start, hid, total),
+        )
+    conn.commit()
+    conn.close()
+
+
+def get_weekly_hobby_time_history():
+    """
+    DataFrame: week_start (ISO Sunday), hobby (name), minutes — for stacked charts.
+    """
+    conn = get_connection()
+    df = pd.read_sql_query(
+        """
+        SELECT w.week_start AS week_start,
+               h.name AS hobby,
+               w.minutes AS minutes
+        FROM weekly_hobby_time w
+        JOIN hobbies h ON w.hobby_id = h.id
+        ORDER BY w.week_start ASC, h.name ASC
+        """,
+        conn,
+    )
+    conn.close()
+    return df
+
+
+def get_weekly_total_minutes_history():
+    """
+    DataFrame: week_start, total_minutes (sum across all hobbies).
+    """
+    conn = get_connection()
+    df = pd.read_sql_query(
+        """
+        SELECT week_start, SUM(minutes) AS total_minutes
+        FROM weekly_hobby_time
+        GROUP BY week_start
+        ORDER BY week_start ASC
+        """,
+        conn,
     )
     conn.close()
     return df

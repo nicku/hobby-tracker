@@ -602,6 +602,86 @@ elif page == "Statistics":
     week_start = today - datetime.timedelta(days=(today.weekday() + 1) % 7)
     week_end = week_start + datetime.timedelta(days=6)
 
+    # Persist weekly time from entries and show full history
+    if hasattr(db, "sync_weekly_hobby_time_from_entries"):
+        db.sync_weekly_hobby_time_from_entries()
+    st.markdown(
+        '<div class="section-title">⏱️ Time spent per hobby (saved by week)</div>',
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        "Totals are stored per calendar week (Sunday–Saturday) from your logged entries. "
+        "They update whenever you open Statistics."
+    )
+    df_wh = db.get_weekly_hobby_time_history() if hasattr(db, "get_weekly_hobby_time_history") else None
+    df_wt = db.get_weekly_total_minutes_history() if hasattr(db, "get_weekly_total_minutes_history") else None
+    if df_wh is not None and not df_wh.empty:
+        def _week_label(ws: str) -> str:
+            try:
+                sun = datetime.datetime.strptime(ws, "%Y-%m-%d").date()
+                sat = sun + datetime.timedelta(days=6)
+                return f"{sun.strftime('%d %b')} – {sat.strftime('%d %b %Y')}"
+            except (ValueError, TypeError):
+                return str(ws)
+
+        df_wh = df_wh.copy()
+        df_wh["week_label"] = df_wh["week_start"].map(_week_label)
+        week_order = sorted(df_wh["week_start"].unique().tolist())
+        label_map = {ws: _week_label(ws) for ws in week_order}
+        week_labels_ordered = [label_map[ws] for ws in week_order]
+
+        try:
+            chart_stack = (
+                alt.Chart(df_wh, width=700, height=320)
+                .mark_bar()
+                .encode(
+                    x=alt.X("week_label:N", title="Week", sort=week_labels_ordered),
+                    y=alt.Y("minutes:Q", title="Minutes"),
+                    color=alt.Color("hobby:N", title="Hobby"),
+                    tooltip=["week_label", "hobby", "minutes"],
+                )
+            )
+        except (AttributeError, TypeError):
+            chart_stack = (
+                alt.Chart(df_wh, width=600, height=320)
+                .mark_bar()
+                .encode(
+                    x=alt.X("week_label:N", title="Week", sort=week_labels_ordered),
+                    y=alt.Y("minutes:Q", title="Minutes"),
+                    color=alt.Color("hobby:N", title="Hobby"),
+                    tooltip=["week_label", "hobby", "minutes"],
+                )
+            )
+        st.altair_chart(chart_stack, use_container_width=True)
+
+        if df_wt is not None and not df_wt.empty:
+            df_wt = df_wt.copy()
+            df_wt["week_label"] = df_wt["week_start"].map(_week_label)
+            try:
+                chart_total = (
+                    alt.Chart(df_wt, width=700, height=240)
+                    .mark_line(point=True, strokeWidth=3)
+                    .encode(
+                        x=alt.X("week_label:N", title="Week", sort=week_labels_ordered),
+                        y=alt.Y("total_minutes:Q", title="Total minutes (all hobbies)"),
+                        tooltip=["week_label", "total_minutes"],
+                    )
+                    .properties(title="Total time across all hobbies per week")
+                )
+            except (AttributeError, TypeError):
+                chart_total = (
+                    alt.Chart(df_wt, width=600, height=240)
+                    .mark_bar()
+                    .encode(
+                        x=alt.X("week_label:N", title="Week", sort=week_labels_ordered),
+                        y=alt.Y("total_minutes:Q", title="Total minutes (all hobbies)"),
+                        tooltip=["week_label", "total_minutes"],
+                    )
+                )
+            st.altair_chart(chart_total, use_container_width=True)
+    else:
+        st.info("No weekly time history yet. Log minutes on hobbies (entries) and open Statistics again to build the graph.")
+
     st.markdown(
         f'<div class="section-title">✅ Completed vs Estimated Tasks per Hobby (Week of {week_start.strftime("%d %b")} – {week_end.strftime("%d %b")})</div>',
         unsafe_allow_html=True,
