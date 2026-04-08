@@ -6,16 +6,15 @@ _project_root = Path(__file__).resolve().parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-import importlib
 import streamlit as st
-import data.database as db
-
-# Reload so a normal push/deploy always uses the latest database.py (avoids stale module cache).
-# Skip reload if it fails (e.g. strict envs, Python 3.14, or module not reloadable).
 try:
-    importlib.reload(db)
-except Exception:
-    pass
+    import data.database as db
+except (ModuleNotFoundError, KeyError):
+    # Fallback for environments where namespace package resolution intermittently fails.
+    _data_dir = _project_root / "data"
+    if str(_data_dir) not in sys.path:
+        sys.path.insert(0, str(_data_dir))
+    import database as db
 
 from datetime import date
 from itertools import groupby
@@ -23,8 +22,13 @@ import pandas as pd
 import datetime
 import altair as alt
 
-# Initialize database
-db.init_db()
+# Initialize database once per server process (not on every rerun)
+@st.cache_resource
+def _init_db_once():
+    db.init_db()
+    return True
+
+_init_db_once()
 
 # Basic theming / styling
 st.set_page_config(page_title="Hobby Tracker", page_icon="🎯", layout="wide")
@@ -1006,7 +1010,7 @@ elif page == "Weekly Planner":
     # Add a Task to This Week (collapsed by default)
     hobbies = db.get_hobbies()
     st.subheader("Add a Task to This Week")
-    with st.expander("Plan a new weekly task", expanded=False):
+    with st.expander("Plan a new weekly task", expanded=False, key="planner_add_task_exp"):
         col_day, col_title = st.columns([1, 2])
         with col_day:
             day_for_task = st.date_input(
@@ -1127,7 +1131,7 @@ elif page == "Weekly Planner":
     # Packets (Templates) – before Existing Tasks
     st.subheader("Packets (Templates)")
     packets = db.get_planner_packets()
-    with st.expander("Create / edit packets", expanded=False):
+    with st.expander("Create / edit packets", expanded=False, key="planner_packets_exp"):
         new_packet_name = st.text_input("New packet name", key="planner_new_packet_name")
         if st.button("Create packet", key="planner_create_packet_btn") and new_packet_name.strip():
             pid = db.add_planner_packet(new_packet_name.strip())
@@ -1217,7 +1221,7 @@ elif page == "Weekly Planner":
 
     if packets:
         packet_dict = {name: pid for pid, name in packets}
-        with st.expander("Add packet to week", expanded=False):
+        with st.expander("Add packet to week", expanded=False, key="planner_add_packet_week_exp"):
             col_p_day, col_p_packet = st.columns([1, 2])
             with col_p_day:
                 packet_day = st.selectbox(
@@ -1352,7 +1356,7 @@ elif page == "Weekly Planner":
                 first_id = entries[0][1]["id"]
                 first_task = entries[0][1]
                 done_status = "✅" if first_task.get("done") else "⬜"
-                with st.expander(f"{done_status} {title}", expanded=False):
+                with st.expander(f"{done_status} {title}", expanded=False, key=f"gen_task_exp_{first_id}"):
                     # Edit task name (general tasks: updates all instances in the week)
                     edited_gen_name = st.text_input(
                         "Task name",
@@ -1430,7 +1434,7 @@ elif page == "Weekly Planner":
                 first_planner_id = entries[0][1]["id"]
                 first_task = entries[0][1]
                 done_status = "✅" if first_task.get("done") else "⬜"
-                with st.expander(f"{done_status} {pkt_name}: {item_title}", expanded=False):
+                with st.expander(f"{done_status} {pkt_name}: {item_title}", expanded=False, key=f"pkt_task_exp_{first_planner_id}"):
                     day_options = {d_str: pid for d_str, pid in sorted(day_planner)}
                     time_day = st.selectbox(
                         "Day (for remove or mark done)",
@@ -1471,7 +1475,7 @@ elif page == "Weekly Planner":
                 subtasks = db.get_subtasks(t_id)
                 total_minutes = sum(stsk[4] for stsk in subtasks) if subtasks else t[4]
                 done_status = "✅" if is_done else "⬜"
-                with st.expander(f"{done_status} {t[2]} • {total_minutes} min", expanded=False):
+                with st.expander(f"{done_status} {t[2]} • {total_minutes} min", expanded=False, key=f"task_exp_{t_id}"):
                     # Edit task name (hobby tasks only; packet tasks are edited via packet edit)
                     edited_task_name = st.text_input(
                         "Task name",
@@ -1633,11 +1637,9 @@ elif page == "Groceries":
             expand_cat_id = st.session_state.pop("grocery_keep_open_cat_id", None)
             for cat_id, cat_name, _ in categories:
                 items = db.get_grocery_items(cat_id)
-                cat_expanded = (expand_cat_id is not None and expand_cat_id == cat_id)
-                exp_kw = {"expanded": cat_expanded}
-                if expand_cat_id is not None:
-                    exp_kw["key"] = f"grocery_cat_{cat_id}"
-                with st.expander(f"**{cat_name}** ({len(items)} items)", **exp_kw):
+                if expand_cat_id is not None and expand_cat_id == cat_id:
+                    st.session_state[f"grocery_cat_{cat_id}"] = True
+                with st.expander(f"**{cat_name}** ({len(items)} items)", expanded=False, key=f"grocery_cat_{cat_id}"):
                     new_item = st.text_input("Add item", placeholder="New item…", key=f"grocery_new_{cat_id}", label_visibility="collapsed")
                     add_col, _ = st.columns([1, 4])
                     with add_col:
@@ -1704,7 +1706,7 @@ elif page == "Recipes":
         possible = db.get_recipes_possible_to_cook() if hasattr(db, "get_recipes_possible_to_cook") else []
 
         # Add recipe
-        with st.expander("➕ Add new recipe", expanded=False):
+        with st.expander("➕ Add new recipe", expanded=False, key="recipe_add_exp"):
             new_name = st.text_input("Recipe name", key="recipe_new_name", placeholder="e.g. Pasta carbonara")
             new_instructions = st.text_area("Instructions (optional)", key="recipe_new_instructions", placeholder="Steps…", height=100)
             if st.button("Create recipe", key="recipe_create_btn") and new_name.strip():
@@ -1774,7 +1776,9 @@ elif page == "Recipes":
                 badge = " · ✅ Possible to cook" if is_possible else (f" · ⚠️ Missing {missing_count} ingredient(s)" if ing_list and missing_count > 0 else "")
                 ing_count = f" — 📝 {len(ing_list)} ingredients" if ing_list else " — 📝 no ingredients yet"
                 expander_label = f"🍳 {rname}{ing_count}{badge}"
-                with st.expander(expander_label, expanded=(keep_expanded == rid)):
+                if keep_expanded == rid:
+                    st.session_state[f"recipe_exp_{rid}"] = True
+                with st.expander(expander_label, expanded=False, key=f"recipe_exp_{rid}"):
                     st.markdown('<div class="recipe-card">', unsafe_allow_html=True)
                     st.markdown('<div class="recipe-section-label">🥗 Ingredients</div>', unsafe_allow_html=True)
                     if ing_list:
@@ -1909,7 +1913,7 @@ elif page == "General Tasks":
                         st.query_params["page"] = "General Tasks"
                         st.rerun()
 
-                with st.expander("Add to glance (schedule a day, then move to Weekly Planner)", expanded=False):
+                with st.expander("Add to glance (schedule a day, then move to Weekly Planner)", expanded=False, key=f"general_glance_exp_{tid}"):
                     schedule_day = st.selectbox(
                         "Day this week",
                         options=week_days,
