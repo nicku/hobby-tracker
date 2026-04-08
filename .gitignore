@@ -1,0 +1,12 @@
+# Streamlit secrets (contains private API keys — never commit)
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/

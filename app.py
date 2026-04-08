@@ -30,14 +30,29 @@ def _init_db_once():
 
 _init_db_once()
 
+# OpenAI client — initialized once, None if key not configured
+@st.cache_resource
+def _get_openai_client():
+    try:
+        key = st.secrets.get("OPENAI_API_KEY", "")
+    except Exception:
+        key = ""
+    if not key or key.startswith("sk-your"):
+        return None
+    try:
+        from openai import OpenAI
+        return OpenAI(api_key=key)
+    except ImportError:
+        return None
+
 # Basic theming / styling
 st.set_page_config(page_title="Hobby Tracker", page_icon="🎯", layout="wide")
 
 st.markdown(
     """
     <style>
-    /* Import playful handwritten + clean body fonts */
-    @import url('https://fonts.googleapis.com/css2?family=Caveat:wght@500;600&family=Nunito:wght@400;600;700&display=swap');
+    /* Import playful handwritten + clean body fonts (Amatic SC covers Hebrew script) */
+    @import url('https://fonts.googleapis.com/css2?family=Amatic+SC:wght@400;700&family=Caveat:wght@500;600&family=Nunito:wght@400;600;700&display=swap');
 
     /* Apply background to full Streamlit app with layered, subtle orange theme */
     .stApp {
@@ -46,7 +61,16 @@ st.markdown(
             radial-gradient(circle at 90% 8%, rgba(254, 226, 226, 0.85) 0, rgba(254, 226, 226, 0.0) 55%),
             linear-gradient(180deg, #fffaf3 0%, #fde7c7 45%, #fed7aa 80%, #fef3c7 100%) !important;
         color: #1f2933;
-        font-family: 'Caveat', 'Nunito', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        font-family: 'Caveat', 'Amatic SC', 'Nunito', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    }
+    /* Hebrew text → Amatic SC handwriting (upscaled: Amatic SC is narrower than Caveat) */
+    :lang(he), :lang(iw), [dir="rtl"] {
+        font-family: 'Amatic SC', 'Caveat', cursive !important;
+        font-size: 2em !important;
+        font-weight: 900 !important;
+        -webkit-text-stroke: 1px currentColor;
+        letter-spacing: 0.03em;
+        line-height: 1.5;
     }
     /* Ensure main content container is transparent so gradient shows through */
     [data-testid="stAppViewContainer"],
@@ -63,7 +87,7 @@ st.markdown(
         background: transparent !important;
     }
     [data-testid="stSidebar"] .stRadio label {
-        font-family: 'Caveat', 'Nunito', system-ui, sans-serif !important;
+        font-family: 'Caveat', 'Amatic SC', 'Nunito', system-ui, sans-serif !important;
         color: #7c2d12 !important;
     }
     [data-testid="stSidebar"] [role="radiogroup"] label {
@@ -84,7 +108,34 @@ st.markdown(
     }
     [data-testid="stSidebar"] p {
         color: #7c2d12 !important;
-        font-family: 'Caveat', 'Nunito', system-ui, sans-serif !important;
+        font-family: 'Caveat', 'Amatic SC', 'Nunito', system-ui, sans-serif !important;
+    }
+    /* Sidebar app title */
+    .sidebar-app-title {
+        font-family: 'Caveat', 'Amatic SC', cursive;
+        font-size: 1.6rem;
+        font-weight: 600;
+        color: #7c2d12;
+        margin-bottom: 0.75rem;
+        letter-spacing: 0.04em;
+    }
+    /* Kitchen section divider in sidebar */
+    .sidebar-kitchen-divider {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin: 0.85rem 0 0.5rem 0;
+        color: #166534;
+        font-family: 'Caveat', 'Amatic SC', cursive;
+        font-size: 1.1rem;
+        font-weight: 600;
+    }
+    .sidebar-kitchen-divider::before,
+    .sidebar-kitchen-divider::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(22,101,52,0.45), transparent);
     }
 
     /* Global headers use handwritten font (override Streamlit defaults) */
@@ -93,13 +144,13 @@ st.markdown(
     .block-container h2,
     .block-container h3,
     [data-testid="stHeader"] h1 {
-        font-family: 'Caveat', 'Nunito', system-ui, sans-serif !important;
+        font-family: 'Caveat', 'Amatic SC', 'Nunito', system-ui, sans-serif !important;
         color: #7c2d12 !important;
     }
 
     /* Handwritten-style main title and section titles */
     .hobby-title {
-        font-family: 'Caveat', 'Nunito', system-ui, sans-serif;
+        font-family: 'Caveat', 'Amatic SC', 'Nunito', system-ui, sans-serif;
         font-size: 3rem;
         font-weight: 600;
         letter-spacing: 0.08em;
@@ -108,7 +159,7 @@ st.markdown(
         margin-bottom: 0.3rem;
     }
     .hobby-subtitle-main {
-        font-family: 'Caveat', 'Nunito', system-ui, sans-serif;
+        font-family: 'Caveat', 'Amatic SC', 'Nunito', system-ui, sans-serif;
         font-size: 1.7rem;
         color: #7c2d12;
         opacity: 0.95;
@@ -123,14 +174,14 @@ st.markdown(
         margin-bottom: 0.8rem;
     }
     .section-title {
-        font-family: 'Caveat', 'Nunito', system-ui, sans-serif;
+        font-family: 'Caveat', 'Amatic SC', 'Nunito', system-ui, sans-serif;
         font-weight: 600;
         font-size: 1.7rem;
         color: #7c2d12;
         margin-bottom: 0.4rem;
     }
     .stats-title {
-        font-family: 'Caveat', 'Nunito', system-ui, sans-serif;
+        font-family: 'Caveat', 'Amatic SC', 'Nunito', system-ui, sans-serif;
         font-weight: 600;
         font-size: 2rem;
         margin: 0.8rem 0 0.4rem 0;
@@ -139,7 +190,7 @@ st.markdown(
 
     /* Enlarge tab labels like "Overview", "By Hobby", etc. */
     .stTabs button[role="tab"] {
-        font-family: 'Caveat', 'Nunito', system-ui, sans-serif !important;
+        font-family: 'Caveat', 'Amatic SC', 'Nunito', system-ui, sans-serif !important;
         font-size: 1.2rem !important;
     }
     .hobby-pill {
@@ -152,7 +203,7 @@ st.markdown(
         border: 1px solid rgba(251,191,36,0.85);
         font-size: 1.3rem;
         color: #fefce8;
-        font-family: 'Caveat', 'Nunito', system-ui, sans-serif;
+        font-family: 'Caveat', 'Amatic SC', 'Nunito', system-ui, sans-serif;
     }
     .hobby-pill-label {
         margin-right: 0.5rem;
@@ -160,12 +211,12 @@ st.markdown(
     .hobby-pill-delete button {
         background: transparent !important;
         color: #fecaca !important;
-        font-family: 'Caveat', 'Nunito', system-ui, sans-serif;
+        font-family: 'Caveat', 'Amatic SC', 'Nunito', system-ui, sans-serif;
     }
 
     /* All checkbox labels in handwriting */
     div.stCheckbox label {
-        font-family: 'Caveat', 'Nunito', system-ui, sans-serif !important;
+        font-family: 'Caveat', 'Amatic SC', 'Nunito', system-ui, sans-serif !important;
         font-size: 1.15rem !important;
         color: #7c2d12 !important;
     }
@@ -176,7 +227,7 @@ st.markdown(
 
     /* Task tree styling */
     .task-tree {
-        font-family: 'Caveat', 'Nunito', system-ui, sans-serif;
+        font-family: 'Caveat', 'Amatic SC', 'Nunito', system-ui, sans-serif;
         font-size: 1.05rem;
         padding-left: 0.4rem;
     }
@@ -186,7 +237,7 @@ st.markdown(
     .task-tree-task {
         color: #7c2d12;
         font-weight: 600;
-        font-family: 'Caveat', cursive, system-ui, sans-serif !important;
+        font-family: 'Caveat', 'Amatic SC', cursive, system-ui, sans-serif !important;
         font-size: 1.4rem !important;
     }
     /* Packet tasks: pin icon tinted amber/orange to distinguish from regular task pin */
@@ -196,13 +247,13 @@ st.markdown(
     }
     .task-tree-sub-active {
         color: #1f2933;
-        font-family: 'Caveat', cursive, system-ui, sans-serif !important;
+        font-family: 'Caveat', 'Amatic SC', cursive, system-ui, sans-serif !important;
     }
     .task-tree-sub-done {
         color: #15803d;
         text-decoration: line-through;
         opacity: 0.9;
-        font-family: 'Caveat', cursive, system-ui, sans-serif !important;
+        font-family: 'Caveat', 'Amatic SC', cursive, system-ui, sans-serif !important;
         animation: subtaskDone 0.4s ease-out;
     }
     @keyframes subtaskDone {
@@ -212,7 +263,7 @@ st.markdown(
     .glance-task-done {
         color: #15803d !important;
         text-decoration: line-through;
-        font-family: 'Caveat', cursive, system-ui, sans-serif !important;
+        font-family: 'Caveat', 'Amatic SC', cursive, system-ui, sans-serif !important;
         animation: taskDone 0.4s ease-out;
     }
     @keyframes taskDone {
@@ -234,13 +285,13 @@ st.markdown(
         border-left: 2px solid rgba(124, 45, 18, 0.25);
         font-size: 1.2rem;
         line-height: 1.4;
-        font-family: 'Caveat', cursive, system-ui, sans-serif !important;
+        font-family: 'Caveat', 'Amatic SC', cursive, system-ui, sans-serif !important;
     }
     .planner-glance-sub {
         margin: 0.25rem 0;
         font-size: 1.2rem;
         line-height: 1.35;
-        font-family: 'Caveat', cursive, system-ui, sans-serif !important;
+        font-family: 'Caveat', 'Amatic SC', cursive, system-ui, sans-serif !important;
     }
 
     /* Weekly planner remove: text link style */
@@ -264,7 +315,7 @@ st.markdown(
         height: auto !important;
         border-radius: 0.25rem !important;
         font-size: 0.8rem !important;
-        font-family: 'Caveat', cursive, system-ui, sans-serif !important;
+        font-family: 'Caveat', 'Amatic SC', cursive, system-ui, sans-serif !important;
         line-height: 1 !important;
         color: #78716c !important;
         cursor: pointer !important;
@@ -413,116 +464,392 @@ st.markdown(
         .streamlit-expanderHeader { min-height: 2.75rem !important; padding: 0.5rem 0 !important; }
     }
 
-    /* Groceries page: market / garden aesthetic */
+    /* ═══════════════════════════════════════════════════════
+       Groceries page — market / garden aesthetic
+    ═══════════════════════════════════════════════════════ */
     .groceries-hero {
-        font-family: 'Caveat', 'Nunito', system-ui, sans-serif;
-        font-size: 2.2rem;
-        font-weight: 600;
-        color: #166534;
-        margin-bottom: 0.25rem;
+        font-family: 'Caveat', 'Amatic SC', cursive;
+        font-size: 3rem;
+        font-weight: 700;
+        color: #14532d;
+        margin-bottom: 0.15rem;
+        letter-spacing: 0.04em;
+        text-shadow: 1px 2px 0 rgba(255,255,255,0.55);
     }
+    /* Shopping-list note card */
     .groceries-missing-card {
-        background: linear-gradient(145deg, rgba(254, 243, 199, 0.95), rgba(254, 249, 195, 0.9));
-        border: 2px solid rgba(22, 101, 52, 0.35);
-        border-radius: 1rem;
-        padding: 1.25rem 1.5rem;
-        margin-bottom: 1.5rem;
-        box-shadow: 0 4px 14px rgba(22, 101, 52, 0.12);
+        background: linear-gradient(160deg, #fefce8 0%, #fef9c3 55%, #fde68a 100%);
+        border: none;
+        border-left: 5px solid #ca8a04;
+        border-radius: 0 0.85rem 0.85rem 0;
+        padding: 1.1rem 1.4rem 1.1rem 1.6rem;
+        margin-bottom: 1.6rem;
+        box-shadow: 3px 4px 14px rgba(0,0,0,0.10), inset 0 1px 0 rgba(255,255,255,0.7);
+        position: relative;
+    }
+    .groceries-missing-card::before {
+        content: "📌";
+        position: absolute;
+        top: -0.55rem;
+        left: 1.2rem;
+        font-size: 1.4rem;
+        filter: drop-shadow(0 1px 1px rgba(0,0,0,0.2));
     }
     .groceries-missing-title {
-        font-family: 'Caveat', 'Nunito', system-ui, sans-serif;
-        font-size: 1.4rem;
+        font-family: 'Caveat', 'Amatic SC', cursive;
+        font-size: 1.6rem;
         font-weight: 700;
-        color: #166534;
-        margin-bottom: 0.75rem;
+        color: #78350f;
+        margin-bottom: 0.6rem;
         display: flex;
         align-items: center;
         gap: 0.5rem;
     }
     .groceries-missing-list {
-        font-family: 'Caveat', cursive, system-ui, sans-serif;
-        font-size: 1.1rem;
+        font-family: 'Amatic SC', 'Caveat', cursive;
+        font-size: 1.6rem;
+        font-weight: 700;
+        -webkit-text-stroke: 0.5px currentColor;
         color: #1c1917;
-        line-height: 1.7;
+        line-height: 1.75;
     }
     .groceries-missing-list span {
         display: inline-block;
         margin-right: 0.5rem;
         margin-bottom: 0.25rem;
     }
+    /* Category cards — produce-crate look */
     .groceries-category-card {
-        background: linear-gradient(180deg, rgba(255,255,255,0.7) 0%, rgba(254, 249, 195, 0.4) 100%);
-        border: 1px solid rgba(124, 45, 18, 0.2);
+        background: linear-gradient(180deg, rgba(240,253,244,0.85) 0%, rgba(220,252,231,0.5) 100%);
+        border: 1.5px solid rgba(22, 101, 52, 0.25);
         border-radius: 0.85rem;
         padding: 1rem 1.25rem;
         margin-bottom: 1rem;
-        box-shadow: 0 2px 10px rgba(124, 45, 18, 0.06);
+        box-shadow: 0 2px 8px rgba(22, 101, 52, 0.08);
     }
     .groceries-category-name {
-        font-family: 'Caveat', 'Nunito', system-ui, sans-serif;
-        font-size: 1.35rem;
-        font-weight: 600;
-        color: #7c2d12;
+        font-family: 'Caveat', 'Amatic SC', cursive;
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: #14532d;
         margin-bottom: 0.5rem;
+        letter-spacing: 0.03em;
     }
+    /* Item rows — handwritten checklist */
     .groceries-item-row {
-        font-family: 'Caveat', cursive, system-ui, sans-serif !important;
-        font-size: 1.2rem;
+        font-family: 'Amatic SC', 'Caveat', cursive !important;
+        font-size: 1.6rem;
+        font-weight: 700;
+        -webkit-text-stroke: 0.5px currentColor;
         color: #1f2933;
-        padding: 0.35rem 0;
-        border-bottom: 1px solid rgba(124, 45, 18, 0.08);
+        padding: 0.3rem 0;
+        border-bottom: 1px dashed rgba(22, 101, 52, 0.12);
+        line-height: 1.5;
     }
     .groceries-item-row:last-child { border-bottom: none; }
-    .groceries-item-have { color: #15803d; text-decoration: line-through; opacity: 0.85; font-family: 'Caveat', cursive, system-ui, sans-serif !important; }
+    .groceries-item-have {
+        color: #15803d;
+        text-decoration: line-through;
+        opacity: 0.75;
+        font-family: 'Amatic SC', 'Caveat', cursive !important;
+        font-size: 1.6rem;
+        font-weight: 700;
+        -webkit-text-stroke: 0.5px currentColor;
+    }
     .groceries-empty-msg {
-        font-family: 'Caveat', cursive, system-ui, sans-serif;
+        font-family: 'Amatic SC', 'Caveat', cursive;
+        font-size: 1.3rem;
+        font-weight: 700;
         color: #78716c;
         font-style: italic;
-        padding: 1rem 0;
+        padding: 0.75rem 0;
     }
-    .groceries-cat-label, .groceries-section-head {
-        font-family: 'Caveat', cursive, system-ui, sans-serif !important;
-        font-size: 1.25rem;
-        font-weight: 600;
+    .groceries-cat-label {
+        font-family: 'Amatic SC', 'Caveat', cursive !important;
+        font-size: 1.5rem;
+        font-weight: 700;
+        -webkit-text-stroke: 0.4px currentColor;
+        color: #14532d;
+        margin: 0.5rem 0 0.2rem 0;
+        padding: 0.2rem 0.6rem;
+        background: rgba(22,101,52,0.08);
+        border-radius: 0.35rem;
+        display: inline-block;
+    }
+    .groceries-section-head {
+        font-family: 'Amatic SC', 'Caveat', cursive !important;
+        font-size: 1.9rem;
+        font-weight: 700;
+        -webkit-text-stroke: 0.4px currentColor;
+        color: #14532d;
+        letter-spacing: 0.03em;
+        margin: 0.5rem 0 0.75rem 0;
+    }
+    /* Style grocery category expanders: green market crate */
+    [data-testid="stSidebar"] ~ * details[data-testid="stExpander"],
+    details[data-testid="stExpander"]:has(> summary > div[data-testid="stExpanderToggleIcon"]) {
+        border-radius: 0.7rem;
+    }
+    /* ═══════════════════════════════════════════════════════
+       Recipes page — cookbook / recipe-card aesthetic
+    ═══════════════════════════════════════════════════════ */
+    .recipes-hero {
+        font-family: 'Caveat', 'Amatic SC', cursive;
+        font-size: 3.2rem;
+        font-weight: 700;
         color: #7c2d12;
+        margin-bottom: 0.15rem;
+        letter-spacing: 0.04em;
+        text-shadow: 1px 2px 0 rgba(255,255,255,0.55);
     }
-    /* Recipes page */
-    .recipes-hero { font-family: 'Caveat', cursive, system-ui, sans-serif; font-size: 2.2rem; font-weight: 600; color: #7c2d12; margin-bottom: 0.25rem; }
-    .recipes-possible-card { background: linear-gradient(145deg, rgba(220, 252, 231, 0.95), rgba(187, 247, 208, 0.8)); border: 2px solid rgba(22, 101, 52, 0.4); border-radius: 1rem; padding: 1rem 1.25rem; margin-bottom: 1rem; }
-    .recipes-possible-title { font-family: 'Caveat', cursive, system-ui, sans-serif; font-size: 1.3rem; font-weight: 700; color: #166534; margin-bottom: 0.5rem; }
-    .recipes-list-item { font-family: 'Caveat', cursive, system-ui, sans-serif; font-size: 1.15rem; color: #1f2933; }
-    .recipes-badge-possible { background: #166534; color: #f0fdf4; padding: 0.2rem 0.5rem; border-radius: 0.5rem; font-size: 0.85rem; }
-    .recipes-badge-missing { background: #b45309; color: #fff7ed; padding: 0.2rem 0.5rem; border-radius: 0.5rem; font-size: 0.85rem; }
+    /* "Possible to cook" banner — satisfying green glow */
+    .recipes-possible-card {
+        background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 60%, #bbf7d0 100%);
+        border: none;
+        border-left: 5px solid #16a34a;
+        border-radius: 0 1rem 1rem 0;
+        padding: 1.1rem 1.5rem;
+        margin-bottom: 1.4rem;
+        box-shadow: 0 2px 14px rgba(22, 101, 52, 0.18), inset 0 1px 0 rgba(255,255,255,0.7);
+    }
+    .recipes-possible-title {
+        font-family: 'Caveat', 'Amatic SC', cursive;
+        font-size: 1.7rem;
+        font-weight: 700;
+        color: #14532d;
+        margin-bottom: 0.5rem;
+    }
+    .recipes-list-item { font-family: 'Caveat', 'Amatic SC', cursive; font-size: 1.4rem; font-weight: 700; color: #1f2933; }
+    .recipes-badge-possible {
+        background: linear-gradient(135deg, #166534, #15803d);
+        color: #f0fdf4;
+        padding: 0.2rem 0.6rem;
+        border-radius: 0.5rem;
+        font-size: 0.85rem;
+        box-shadow: 0 1px 3px rgba(22,101,52,0.3);
+    }
+    .recipes-badge-missing {
+        background: linear-gradient(135deg, #92400e, #b45309);
+        color: #fff7ed;
+        padding: 0.2rem 0.6rem;
+        border-radius: 0.5rem;
+        font-size: 0.85rem;
+    }
 
-    /* Recipe cards – glance-style layout */
+    /* Recipe cards — recipe index card feel */
     .recipes-glance-wrap { margin-top: 1rem; }
-    .recipe-card { margin-bottom: 1.25rem; border-radius: 0.75rem; border: 1px solid rgba(124, 45, 18, 0.2); background: linear-gradient(180deg, rgba(255,255,255,0.97), rgba(254, 252, 232, 0.4)); padding: 0; overflow: hidden; box-shadow: 0 1px 3px rgba(124, 45, 18, 0.08); }
-    .recipe-card-header { font-family: 'Caveat', 'Nunito', system-ui, sans-serif; font-weight: 600; font-size: 1.6rem; color: #7c2d12; padding: 0.6rem 1rem 0.5rem 1rem; border-bottom: 1px solid rgba(124, 45, 18, 0.12); display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
-    .recipe-card-meta { font-size: 0.95rem; color: rgba(124, 45, 18, 0.75); font-weight: 400; }
-    .recipe-ingredients-tree { margin: 0.5rem 0 0.75rem 0; padding-left: 1.25rem; margin-left: 1rem; border-left: 2px solid rgba(124, 45, 18, 0.25); font-size: 1.1rem; line-height: 1.4; font-family: 'Caveat', cursive, system-ui, sans-serif !important; }
-    .recipe-ingredient { margin: 0.28rem 0; font-size: 1.1rem; line-height: 1.4; padding: 0.35rem 0.5rem 0.35rem 0.75rem; border-radius: 0.4rem; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
-    .recipe-ingredient-have { color: #15803d; background: rgba(22, 101, 52, 0.08); }
-    .recipe-ingredient-missing { color: #b45309; background: rgba(180, 83, 9, 0.08); }
+    .recipe-card {
+        margin-bottom: 1.4rem;
+        border-radius: 0.85rem;
+        border: 1px solid rgba(124, 45, 18, 0.18);
+        border-top: 3px solid rgba(124, 45, 18, 0.35);
+        background: linear-gradient(160deg, #fffdf7 0%, #fefce8 50%, #fdf6e3 100%);
+        padding: 0;
+        overflow: hidden;
+        box-shadow: 0 3px 12px rgba(124, 45, 18, 0.12), 0 0 0 1px rgba(255,255,255,0.6) inset;
+    }
+    .recipe-card-header {
+        font-family: 'Caveat', 'Amatic SC', cursive;
+        font-weight: 700;
+        font-size: 1.7rem;
+        color: #7c2d12;
+        padding: 0.65rem 1rem 0.5rem 1rem;
+        border-bottom: 2px dashed rgba(124, 45, 18, 0.15);
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        background: rgba(254, 243, 199, 0.4);
+    }
+    .recipe-card-meta { font-size: 0.95rem; color: rgba(124, 45, 18, 0.7); font-weight: 400; }
+    .recipe-ingredients-tree {
+        margin: 0.5rem 0 0.75rem 0;
+        padding-left: 1.25rem;
+        margin-left: 1rem;
+        border-left: 3px solid rgba(124, 45, 18, 0.2);
+        font-size: 1.6rem;
+        font-weight: 700;
+        line-height: 1.5;
+        font-family: 'Amatic SC', 'Caveat', cursive !important;
+    }
+    .recipe-ingredient {
+        margin: 0.3rem 0;
+        font-size: 1.6rem;
+        font-weight: 700;
+        -webkit-text-stroke: 0.4px currentColor;
+        line-height: 1.45;
+        padding: 0.3rem 0.75rem;
+        border-radius: 0.5rem;
+        border: 1px solid transparent;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+        font-family: 'Amatic SC', 'Caveat', cursive !important;
+    }
+    .recipe-ingredient-have {
+        color: #15803d;
+        background: rgba(22, 101, 52, 0.09);
+        border-color: rgba(22, 101, 52, 0.2);
+    }
+    .recipe-ingredient-missing {
+        color: #92400e;
+        background: rgba(180, 83, 9, 0.09);
+        border-color: rgba(146, 64, 14, 0.2);
+    }
     .recipe-ingredient-emoji { font-size: 1.2em; }
-    .recipe-divider { margin: 0.6rem 0 0.4rem 0; padding-bottom: 0.4rem; border-bottom: 1px dashed rgba(124, 45, 18, 0.3); font-size: 0.8rem; color: rgba(124, 45, 18, 0.6); font-family: 'Nunito', system-ui, sans-serif; }
-    .recipe-section-label { font-family: 'Caveat', 'Nunito', system-ui, sans-serif; font-weight: 600; font-size: 1.25rem; color: #7c2d12; margin: 0.75rem 0 0.35rem 0; }
-    /* Style expanders in recipes list like glance cards */
-    .recipes-glance-wrap details { border-radius: 0.75rem; border: 1px solid rgba(124, 45, 18, 0.2); background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(254, 252, 232, 0.35)); box-shadow: 0 1px 3px rgba(124, 45, 18, 0.08); margin-bottom: 1rem; overflow: hidden; }
-    .recipes-glance-wrap details summary { font-family: 'Caveat', 'Nunito', system-ui, sans-serif !important; font-weight: 600 !important; font-size: 1.5rem !important; color: #7c2d12 !important; padding: 0.65rem 1rem !important; }
-    .recipes-glance-wrap details[open] summary { border-bottom: 1px solid rgba(124, 45, 18, 0.12); }
+    .recipe-divider {
+        margin: 0.9rem 0 0.5rem 0;
+        padding-bottom: 0;
+        border: none;
+        border-top: 1px dashed rgba(124, 45, 18, 0.22);
+        font-size: 0;
+        height: 0;
+    }
+    .recipe-section-label {
+        font-family: 'Caveat', 'Amatic SC', cursive;
+        font-weight: 700;
+        font-size: 1.6rem;
+        color: #7c2d12;
+        margin: 0.85rem 0 0.4rem 0;
+    }
+    /* Expanders in recipe list — index-card feel */
+    .recipes-glance-wrap details {
+        border-radius: 0.85rem;
+        border: 1px solid rgba(124, 45, 18, 0.18);
+        border-top: 3px solid rgba(124, 45, 18, 0.3);
+        background: linear-gradient(160deg, #fffdf7 0%, #fefce8 60%, #fdf6e3 100%);
+        box-shadow: 0 3px 10px rgba(124, 45, 18, 0.10);
+        margin-bottom: 1rem;
+        overflow: hidden;
+    }
+    .recipes-glance-wrap details summary {
+        font-family: 'Caveat', 'Amatic SC', cursive !important;
+        font-weight: 700 !important;
+        font-size: 1.7rem !important;
+        color: #7c2d12 !important;
+        padding: 0.75rem 1rem !important;
+        background: rgba(254, 243, 199, 0.35);
+        transition: background 0.15s ease;
+    }
+    .recipes-glance-wrap details summary:hover {
+        background: rgba(254, 243, 199, 0.65) !important;
+    }
+    .recipes-glance-wrap details[open] summary {
+        border-bottom: 2px dashed rgba(124, 45, 18, 0.15);
+        background: rgba(254, 243, 199, 0.55);
+    }
     .recipes-glance-wrap .recipe-card { border: none; border-radius: 0; background: transparent; box-shadow: none; padding: 0 1rem 1rem 1rem; }
 
-    /* Recipes at a Glance (same layout as Weekly Planner glance) */
+    /* Recipes at a Glance */
     .glance-recipes-marker { display: block !important; height: 0 !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; }
-    .glance-recipe-badge { font-size: 0.8rem; margin-bottom: 0.4rem; padding: 0.2rem 0.4rem; border-radius: 0.35rem; background: rgba(22, 101, 52, 0.15); color: #166534; font-family: 'Nunito', system-ui, sans-serif; }
-    .glance-recipe-badge.glance-recipe-missing { background: rgba(180, 83, 9, 0.15); color: #b45309; }
-    .glance-recipe-ing { margin: 0.2rem 0; font-size: 0.95rem; line-height: 1.3; padding: 0.25rem 0; font-family: 'Caveat', cursive, system-ui, sans-serif !important; }
+    .glance-recipe-badge {
+        font-size: 0.85rem;
+        margin-bottom: 0.4rem;
+        padding: 0.2rem 0.55rem;
+        border-radius: 0.4rem;
+        background: rgba(22, 101, 52, 0.13);
+        color: #14532d;
+        font-family: 'Nunito', system-ui, sans-serif;
+        font-weight: 700;
+    }
+    .glance-recipe-badge.glance-recipe-missing { background: rgba(146, 64, 14, 0.13); color: #92400e; }
+    .glance-recipe-ing {
+        margin: 0.2rem 0;
+        font-size: 1.4rem;
+        font-weight: 700;
+        line-height: 1.35;
+        padding: 0.2rem 0;
+        font-family: 'Amatic SC', 'Caveat', cursive !important;
+    }
     .glance-recipe-ing.recipe-ingredient-have { color: #15803d; }
-    .glance-recipe-ing.recipe-ingredient-missing { color: #b45309; }
+    .glance-recipe-ing.recipe-ingredient-missing { color: #92400e; }
     @media (max-width: 768px) {
         .glance-recipes-marker + [data-testid="stHorizontalBlock"] { display: flex !important; flex-wrap: nowrap !important; overflow-x: auto !important; -webkit-overflow-scrolling: touch; scrollbar-width: thin; margin-left: -0.5rem !important; margin-right: -0.5rem !important; padding: 0.25rem 0.5rem !important; }
         .glance-recipes-marker + [data-testid="stHorizontalBlock"] [data-testid="column"] { flex: 0 0 auto !important; min-width: 110px !important; }
         .glance-recipes-marker + [data-testid="stHorizontalBlock"] .section-title { font-size: 0.95rem !important; white-space: nowrap !important; }
+    }
+
+    /* ═══════════════════════════════════════════════════════
+       Chef AI page
+    ═══════════════════════════════════════════════════════ */
+    .chef-hero {
+        font-family: 'Caveat', 'Amatic SC', cursive;
+        font-size: 3rem;
+        font-weight: 700;
+        color: #1e3a5f;
+        letter-spacing: 0.04em;
+        text-shadow: 1px 2px 0 rgba(255,255,255,0.6);
+        margin-bottom: 0.1rem;
+    }
+    .chef-subtitle {
+        font-family: 'Caveat', 'Amatic SC', cursive;
+        font-size: 1.4rem;
+        color: #334e68;
+        margin-bottom: 1.2rem;
+        opacity: 0.9;
+    }
+    /* Welcome banner */
+    .chef-welcome {
+        background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 55%, #bfdbfe 100%);
+        border-left: 5px solid #3b82f6;
+        border-radius: 0 1rem 1rem 0;
+        padding: 1.1rem 1.5rem;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 2px 12px rgba(59,130,246,0.13), inset 0 1px 0 rgba(255,255,255,0.7);
+    }
+    .chef-welcome-title {
+        font-family: 'Caveat', 'Amatic SC', cursive;
+        font-size: 1.55rem;
+        font-weight: 700;
+        color: #1e40af;
+        margin-bottom: 0.35rem;
+    }
+    .chef-welcome-tips {
+        font-family: 'Caveat', 'Amatic SC', cursive;
+        font-size: 1.25rem;
+        color: #1e3a5f;
+        line-height: 1.7;
+    }
+    /* Recipe suggestion card */
+    .chef-recipe-card {
+        background: linear-gradient(160deg, #fffdf7 0%, #fefce8 50%, #fdf6e3 100%);
+        border: 1px solid rgba(124, 45, 18, 0.18);
+        border-top: 3px solid #f59e0b;
+        border-radius: 0.85rem;
+        padding: 1.25rem 1.5rem;
+        margin: 1rem 0;
+        box-shadow: 0 3px 14px rgba(245,158,11,0.13);
+    }
+    .chef-recipe-card-title {
+        font-family: 'Caveat', 'Amatic SC', cursive;
+        font-size: 1.9rem;
+        font-weight: 700;
+        color: #92400e;
+        margin-bottom: 0.6rem;
+        letter-spacing: 0.02em;
+    }
+    .chef-ing-row {
+        font-family: 'Amatic SC', 'Caveat', cursive;
+        font-size: 1.4rem;
+        font-weight: 700;
+        padding: 0.2rem 0;
+    }
+    .chef-ing-existing { color: #15803d; }
+    .chef-ing-new { color: #92400e; }
+    /* Clear chat button */
+    .chef-clear-btn button {
+        background: transparent !important;
+        border: 1px solid rgba(59,130,246,0.3) !important;
+        color: #3b82f6 !important;
+        font-family: 'Caveat', 'Amatic SC', cursive !important;
+        font-size: 1rem !important;
+        padding: 0.2rem 0.75rem !important;
+        border-radius: 0.5rem !important;
+    }
+    .chef-clear-btn button:hover {
+        background: rgba(59,130,246,0.08) !important;
+        border-color: #3b82f6 !important;
     }
     </style>
     """,
@@ -546,13 +873,38 @@ with hero_right:
 # Sidebar Navigation
 # -------------------
 
-# Persist current page in URL so refresh returns to same page
-nav_options = ["Add Hobby", "Statistics", "Weekly Planner", "Groceries", "Recipes", "General Tasks"]
-current_page = st.query_params.get("page", nav_options[0])
-if current_page not in nav_options:
-    current_page = nav_options[0]
-page_idx = nav_options.index(current_page)
-page = st.sidebar.radio("Navigation", nav_options, index=page_idx, key="sidebar_nav")
+# Sidebar navigation — main + kitchen subsection
+nav_main = ["Add Hobby", "Statistics", "Weekly Planner", "General Tasks"]
+nav_kitchen = ["Groceries", "Recipes", "Chef AI"]
+all_nav = nav_main + nav_kitchen
+
+current_page = st.query_params.get("page", nav_main[0])
+if current_page not in all_nav:
+    current_page = nav_main[0]
+
+# Track previous radio values to detect which group the user clicked
+_prev_main = st.session_state.get("_nav_main_sel")
+_prev_kitchen = st.session_state.get("_nav_kitchen_sel")
+
+main_idx = nav_main.index(current_page) if current_page in nav_main else None
+kitchen_idx = nav_kitchen.index(current_page) if current_page in nav_kitchen else None
+
+st.sidebar.markdown('<div class="sidebar-app-title">🎯 Hobby Tracker</div>', unsafe_allow_html=True)
+_main_sel = st.sidebar.radio("", nav_main, index=main_idx, key="sidebar_main", label_visibility="collapsed")
+st.sidebar.markdown('<div class="sidebar-kitchen-divider">🛒 Kitchen</div>', unsafe_allow_html=True)
+_kitchen_sel = st.sidebar.radio("", nav_kitchen, index=kitchen_idx, key="sidebar_kitchen", label_visibility="collapsed")
+
+st.session_state["_nav_main_sel"] = _main_sel
+st.session_state["_nav_kitchen_sel"] = _kitchen_sel
+
+# Detect navigation: whichever selection changed from the previous run is the new page
+if _main_sel is not None and _main_sel != _prev_main:
+    page = _main_sel
+elif _kitchen_sel is not None and _kitchen_sel != _prev_kitchen:
+    page = _kitchen_sel
+else:
+    page = current_page
+
 if page != current_page:
     st.query_params["page"] = page
     st.rerun()
@@ -1948,3 +2300,281 @@ elif page == "General Tasks":
                     st.toast("Updated.")
                     st.query_params["page"] = "General Tasks"
                     st.rerun()
+
+# -------------------
+# Chef AI Page
+# -------------------
+elif page == "Chef AI":
+    import json
+
+    oai = _get_openai_client()
+
+    # ── hero ───────────────────────────────────────────────────────────
+    st.markdown('<div class="chef-hero">🤖 Chef AI</div>', unsafe_allow_html=True)
+    st.markdown('<div class="chef-subtitle">Your personal AI cooking assistant — always ready to inspire!</div>', unsafe_allow_html=True)
+
+    if oai is None:
+        st.warning(
+            "🔑 **OpenAI API key not configured.** "
+            "Add your key to `.streamlit/secrets.toml` as `OPENAI_API_KEY = \"sk-...\"`, "
+            "then restart the app. On Streamlit Cloud, add it via **App Settings → Secrets**."
+        )
+    else:
+        # ── session state ──────────────────────────────────────────────
+        if "chef_messages" not in st.session_state:
+            st.session_state["chef_messages"] = []
+        if "chef_pending_recipe" not in st.session_state:
+            st.session_state["chef_pending_recipe"] = None
+
+        # ── welcome banner (only when chat is empty) ───────────────────
+        if not st.session_state["chef_messages"] and not st.session_state["chef_pending_recipe"]:
+            st.markdown(
+                """
+                <div class="chef-welcome">
+                  <div class="chef-welcome-title">👨‍🍳 Hi! I'm Chef AI — what shall we cook today?</div>
+                  <div class="chef-welcome-tips">
+                    Here are some things you can ask me:<br>
+                    🍝 &nbsp;<em>Suggest a quick weeknight pasta</em><br>
+                    🥗 &nbsp;<em>Give me a healthy salad with what I have</em><br>
+                    🧁 &nbsp;<em>What can I bake with eggs, flour and butter?</em><br>
+                    🔄 &nbsp;<em>What's a substitute for heavy cream?</em><br>
+                    🌶️ &nbsp;<em>Make last week's chicken recipe spicier</em>
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        # ── tool definition ────────────────────────────────────────────
+        SUGGEST_TOOL = {
+            "type": "function",
+            "function": {
+                "name": "suggest_recipe",
+                "description": "Propose a recipe to add to the user's recipe book.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Recipe name"},
+                        "instructions": {"type": "string", "description": "Concise step-by-step cooking instructions"},
+                        "ingredients": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "category": {"type": "string", "description": "Grocery category (e.g. Dairy, Produce, Meat)"}
+                                },
+                                "required": ["name", "category"]
+                            }
+                        }
+                    },
+                    "required": ["name", "instructions", "ingredients"]
+                }
+            }
+        }
+
+        def _build_system_prompt():
+            cats = db.get_grocery_categories()
+            items = db.get_all_grocery_items() if hasattr(db, "get_all_grocery_items") else []
+            cat_list = ", ".join(c[1] for c in cats) if cats else "none yet"
+            item_list = ", ".join(i[1] for i in items[:80]) if items else "none yet"
+            return (
+                "You are Chef AI, a warm, enthusiastic, and creative cooking assistant embedded in a personal recipe tracker. "
+                "Use a friendly, encouraging tone. Include a fun food emoji or two in your replies. "
+                "Keep responses concise and practical — no long essays.\n\n"
+                f"The user's existing grocery categories: {cat_list}\n"
+                f"The user's existing grocery ingredients: {item_list}\n\n"
+                "When the user asks for a recipe suggestion (or when it's natural to offer one), "
+                "call the suggest_recipe() function with the full structured recipe. "
+                "Prefer reusing existing ingredient names and categories where sensible. "
+                "You may also chat freely — answer cooking questions, give substitution tips, discuss flavor ideas — without calling the function."
+            )
+
+        def _call_openai(user_message: str):
+            messages = [{"role": "system", "content": _build_system_prompt()}]
+            messages += st.session_state["chef_messages"]
+            messages.append({"role": "user", "content": user_message})
+            response = oai.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=messages,
+                tools=[SUGGEST_TOOL],
+                tool_choice="auto",
+            )
+            return response.choices[0].message
+
+        # ── chat history ───────────────────────────────────────────────
+        for m in st.session_state["chef_messages"]:
+            if m["role"] in ("user", "assistant") and isinstance(m.get("content"), str):
+                with st.chat_message(m["role"]):
+                    st.markdown(m["content"])
+
+        # ── pending recipe card ────────────────────────────────────────
+        pending = st.session_state.get("chef_pending_recipe")
+        if pending:
+            all_items = db.get_all_grocery_items() if hasattr(db, "get_all_grocery_items") else []
+            existing_lower = {i[1].strip().lower(): (i[0], i[2], i[3]) for i in all_items}
+            all_cats = db.get_grocery_categories()
+            cat_options = [(c[0], c[1]) for c in all_cats]
+            cat_names = [c[1] for c in cat_options]
+
+            new_ingredients, existing_links = [], []
+            for ing in pending["ingredients"]:
+                key = ing["name"].strip().lower()
+                if key in existing_lower:
+                    existing_links.append(existing_lower[key][0])
+                else:
+                    new_ingredients.append(ing)
+
+            st.markdown(
+                f'<div class="chef-recipe-card"><div class="chef-recipe-card-title">🍽️ {pending["name"]}</div></div>',
+                unsafe_allow_html=True,
+            )
+
+            with st.form("chef_add_recipe_form"):
+                col_l, col_r = st.columns([3, 2])
+                with col_l:
+                    st.markdown("**✏️ Recipe name**")
+                    recipe_name = st.text_input("Recipe name", value=pending["name"], label_visibility="collapsed", key="chef_recipe_name")
+                with col_r:
+                    st.markdown(f"**🥗 Ingredients: {len(existing_links)} existing · {len(new_ingredients)} new**")
+
+                st.markdown("**📋 Instructions**")
+                recipe_instructions = st.text_area("Instructions", value=pending.get("instructions", ""), label_visibility="collapsed", key="chef_recipe_instructions", height=130)
+
+                if existing_links:
+                    st.markdown(f"**✅ Already in your grocery list** — will be linked automatically:")
+                    for item_id in existing_links:
+                        match = next((i for i in all_items if i[0] == item_id), None)
+                        if match:
+                            st.markdown(f'<div class="chef-ing-row chef-ing-existing">✅ &nbsp;{match[1]} <span style="opacity:0.6;font-size:0.85em;">({match[3]})</span></div>', unsafe_allow_html=True)
+
+                NEW_CAT_OPTION = "➕ New category…"
+                cat_sel_inputs, new_cats_inputs = {}, {}
+                if new_ingredients:
+                    st.markdown("**🆕 New ingredients — pick a category for each:**")
+                    hdr_col, hdr_cat = st.columns([2, 3])
+                    hdr_col.caption("🧂 Ingredient")
+                    hdr_cat.caption("📂 Category")
+                    for ing in new_ingredients:
+                        suggested = ing.get("category", "")
+                        default_idx = len(cat_names)  # NEW_CAT_OPTION
+                        for ci, cname in enumerate(cat_names):
+                            if suggested.strip().lower() == cname.strip().lower():
+                                default_idx = ci
+                                break
+                        col_name, col_cat = st.columns([2, 3])
+                        with col_name:
+                            st.markdown(f'<div class="chef-ing-row chef-ing-new">🆕 &nbsp;{ing["name"]}</div>', unsafe_allow_html=True)
+                            st.text_input("Ingredient", value=ing["name"], key=f"chef_ing_name_{ing['name']}", label_visibility="collapsed")
+                        with col_cat:
+                            st.selectbox("Category", options=cat_names + [NEW_CAT_OPTION], index=default_idx, key=f"chef_ing_cat_{ing['name']}", label_visibility="collapsed")
+                            st.text_input("New category name", value=suggested if default_idx == len(cat_names) else "", placeholder="e.g. Spices & Herbs…", key=f"chef_newcat_{ing['name']}", label_visibility="collapsed")
+                        cat_sel_inputs[ing["name"]] = f"chef_ing_cat_{ing['name']}"
+                        new_cats_inputs[ing["name"]] = f"chef_newcat_{ing['name']}"
+
+                sub_col, dis_col = st.columns([2, 1])
+                with sub_col:
+                    submitted = st.form_submit_button("🍳 Add to my recipes", type="primary", use_container_width=True)
+                with dis_col:
+                    dismissed = st.form_submit_button("✖ Dismiss", use_container_width=True)
+
+            if dismissed:
+                st.session_state["chef_pending_recipe"] = None
+                st.rerun()
+
+            if submitted:
+                errors = []
+                resolved_item_ids = list(existing_links)
+                created_cats = {}
+
+                for ing in new_ingredients:
+                    ing_name_final = st.session_state.get(f"chef_ing_name_{ing['name']}", ing["name"]).strip()
+                    cat_sel = st.session_state.get(f"chef_ing_cat_{ing['name']}", "")
+
+                    if cat_sel == NEW_CAT_OPTION:
+                        new_cat_name = st.session_state.get(f"chef_newcat_{ing['name']}", "").strip()
+                        if not new_cat_name:
+                            errors.append(f"⚠️ Please enter a category name for **{ing_name_final}**.")
+                            continue
+                        nc_key = new_cat_name.lower()
+                        if nc_key not in created_cats:
+                            existing_cat = next((c[0] for c in all_cats if c[1].strip().lower() == nc_key), None)
+                            if existing_cat:
+                                created_cats[nc_key] = existing_cat
+                            else:
+                                db.add_grocery_category(new_cat_name)
+                                fresh_cats = db.get_grocery_categories()
+                                new_id = next((c[0] for c in fresh_cats if c[1].strip().lower() == nc_key), None)
+                                created_cats[nc_key] = new_id
+                        cat_id = created_cats[nc_key]
+                    else:
+                        cat_id = next((c[0] for c in cat_options if c[1] == cat_sel), None)
+                        if cat_id is None:
+                            errors.append(f"⚠️ Could not find category for **{ing_name_final}**.")
+                            continue
+
+                    new_item_id = db.add_grocery_item(cat_id, ing_name_final)
+                    if new_item_id is None:
+                        fresh_items = db.get_all_grocery_items() if hasattr(db, "get_all_grocery_items") else []
+                        new_item_id = next((i[0] for i in fresh_items if i[1].strip().lower() == ing_name_final.lower()), None)
+                    if new_item_id:
+                        resolved_item_ids.append(new_item_id)
+
+                if errors:
+                    for e in errors:
+                        st.error(e)
+                else:
+                    rname_final = recipe_name.strip() or pending["name"]
+                    rid = db.add_recipe(rname_final, recipe_instructions.strip())
+                    if rid is None:
+                        st.error(f"A recipe named **{rname_final}** already exists. Rename it above.")
+                    else:
+                        for item_id in resolved_item_ids:
+                            db.add_recipe_ingredient(rid, item_id)
+                        st.session_state["chef_pending_recipe"] = None
+                        st.session_state["recipe_expanded_id"] = rid
+                        st.toast(f"🎉 «{rname_final}» added with {len(resolved_item_ids)} ingredients!")
+                        st.query_params["page"] = "Recipes"
+                        st.rerun()
+
+        # ── chat input + clear button ──────────────────────────────────
+        if st.session_state["chef_messages"]:
+            st.markdown('<div class="chef-clear-btn">', unsafe_allow_html=True)
+            if st.button("🗑️ Clear conversation", key="chef_clear"):
+                st.session_state["chef_messages"] = []
+                st.session_state["chef_pending_recipe"] = None
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        user_input = st.chat_input("💬 Ask for a recipe, tips, substitutions…")
+        if user_input:
+            st.session_state["chef_messages"].append({"role": "user", "content": user_input})
+            with st.chat_message("user"):
+                st.markdown(user_input)
+
+            with st.chat_message("assistant"):
+                with st.spinner("👨‍🍳 Chef AI is cooking up an answer…"):
+                    try:
+                        msg = _call_openai(user_input)
+                    except Exception as e:
+                        st.error(f"OpenAI error: {e}")
+                        st.stop()
+
+            if msg.tool_calls:
+                tool_call = msg.tool_calls[0]
+                if tool_call.function.name == "suggest_recipe":
+                    try:
+                        recipe_data = json.loads(tool_call.function.arguments)
+                        st.session_state["chef_pending_recipe"] = recipe_data
+                    except Exception:
+                        recipe_data = {"name": "Recipe"}
+                    reply_text = msg.content or f"🍽️ Here's my suggestion for **{recipe_data.get('name', 'this recipe')}**! Review the ingredients below, tweak anything you like, then hit **Add to my recipes**."
+                    st.session_state["chef_messages"].append({"role": "assistant", "content": reply_text})
+                    with st.chat_message("assistant"):
+                        st.markdown(reply_text)
+            elif msg.content:
+                st.session_state["chef_messages"].append({"role": "assistant", "content": msg.content})
+                with st.chat_message("assistant"):
+                    st.markdown(msg.content)
+
+            st.rerun()
