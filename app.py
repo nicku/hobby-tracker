@@ -119,23 +119,39 @@ st.markdown(
         margin-bottom: 0.75rem;
         letter-spacing: 0.04em;
     }
-    /* Kitchen section divider in sidebar */
-    .sidebar-kitchen-divider {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        margin: 0.85rem 0 0.5rem 0;
-        color: #166534;
-        font-family: 'Caveat', 'Amatic SC', cursive;
-        font-size: 1.1rem;
-        font-weight: 600;
+    /* Kitchen section: style options 5-7 green-tinted */
+    [data-testid="stSidebar"] [role="radiogroup"] label:nth-child(n+5) {
+        background: rgba(22, 101, 52, 0.07) !important;
+        border-color: rgba(22, 101, 52, 0.2) !important;
+        color: #14532d !important;
     }
-    .sidebar-kitchen-divider::before,
-    .sidebar-kitchen-divider::after {
-        content: "";
-        flex: 1;
-        height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(22,101,52,0.45), transparent);
+    [data-testid="stSidebar"] [role="radiogroup"] label:nth-child(n+5):hover {
+        background: rgba(22, 101, 52, 0.15) !important;
+        border-color: rgba(22, 101, 52, 0.35) !important;
+    }
+    [data-testid="stSidebar"] [role="radiogroup"] label:nth-child(n+5):has(input[type="radio"]:checked) {
+        background: linear-gradient(135deg, #dcfce7, #bbf7d0) !important;
+        border-color: #16a34a !important;
+        color: #14532d !important;
+    }
+    /* "🛒 Kitchen" divider floated above the 5th radio option */
+    [data-testid="stSidebar"] [role="radiogroup"] label:nth-child(5) {
+        margin-top: 2.2rem !important;
+        position: relative !important;
+    }
+    [data-testid="stSidebar"] [role="radiogroup"] label:nth-child(5)::before {
+        content: "── 🛒 Kitchen ──";
+        position: absolute;
+        top: -1.9rem;
+        left: 0;
+        right: 0;
+        font-family: 'Caveat', 'Amatic SC', cursive;
+        font-size: 1rem;
+        font-weight: 700;
+        color: #166534;
+        pointer-events: none;
+        white-space: nowrap;
+        text-align: center;
     }
 
     /* Global headers use handwritten font (override Streamlit defaults) */
@@ -873,37 +889,17 @@ with hero_right:
 # Sidebar Navigation
 # -------------------
 
-# Sidebar navigation — main + kitchen subsection
-nav_main = ["Add Hobby", "Statistics", "Weekly Planner", "General Tasks"]
-nav_kitchen = ["Groceries", "Recipes", "Chef AI"]
-all_nav = nav_main + nav_kitchen
+# Sidebar navigation — single radio, Kitchen items visually separated via CSS
+nav_options = ["Add Hobby", "Statistics", "Weekly Planner", "General Tasks",
+               "Groceries", "Recipes", "Chef AI"]
 
-current_page = st.query_params.get("page", nav_main[0])
-if current_page not in all_nav:
-    current_page = nav_main[0]
-
-# Track previous radio values to detect which group the user clicked
-_prev_main = st.session_state.get("_nav_main_sel")
-_prev_kitchen = st.session_state.get("_nav_kitchen_sel")
-
-main_idx = nav_main.index(current_page) if current_page in nav_main else None
-kitchen_idx = nav_kitchen.index(current_page) if current_page in nav_kitchen else None
+current_page = st.query_params.get("page", nav_options[0])
+if current_page not in nav_options:
+    current_page = nav_options[0]
 
 st.sidebar.markdown('<div class="sidebar-app-title">🎯 Hobby Tracker</div>', unsafe_allow_html=True)
-_main_sel = st.sidebar.radio("", nav_main, index=main_idx, key="sidebar_main", label_visibility="collapsed")
-st.sidebar.markdown('<div class="sidebar-kitchen-divider">🛒 Kitchen</div>', unsafe_allow_html=True)
-_kitchen_sel = st.sidebar.radio("", nav_kitchen, index=kitchen_idx, key="sidebar_kitchen", label_visibility="collapsed")
-
-st.session_state["_nav_main_sel"] = _main_sel
-st.session_state["_nav_kitchen_sel"] = _kitchen_sel
-
-# Detect navigation: whichever selection changed from the previous run is the new page
-if _main_sel is not None and _main_sel != _prev_main:
-    page = _main_sel
-elif _kitchen_sel is not None and _kitchen_sel != _prev_kitchen:
-    page = _kitchen_sel
-else:
-    page = current_page
+page = st.sidebar.radio("", nav_options, index=nav_options.index(current_page),
+                        key="sidebar_nav", label_visibility="collapsed")
 
 if page != current_page:
     st.query_params["page"] = page
